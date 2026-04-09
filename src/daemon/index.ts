@@ -515,6 +515,14 @@ function queueSummary(queue: OmxDaemonQueueItem[]): string {
   return `queued=${queued}, published=${published}, total=${queue.length}`;
 }
 
+function formatDaemonTarget(repository: string | null): string {
+  return repository ?? "this worktree";
+}
+
+function formatCredentialGuidance(): string {
+  return "Check .omx/daemon/daemon.config.json, GH_TOKEN, GITHUB_TOKEN, or gh auth token.";
+}
+
 function createQueueItem(
   projectRoot: string,
   config: OmxDaemonConfig | null,
@@ -895,7 +903,7 @@ export function getOmxDaemonStatus(projectRoot = process.cwd()): DaemonResponse 
   if (!configured) {
     return {
       success: true,
-      message: "Daemon is not initialized for this worktree. Use $setup-omx-daemon or scaffold .omx/daemon first.",
+      message: "Daemon is not initialized for this worktree. Use $setup-omx-daemon for guided onboarding or `omx daemon scaffold` to create tracked .omx/daemon inputs.",
       state: {
         ...state,
         statusReason: "not-initialized",
@@ -911,13 +919,14 @@ export function getOmxDaemonStatus(projectRoot = process.cwd()): DaemonResponse 
   const statusReason = !tokenResult.token
     ? "missing-credentials"
     : running ? "running" : "stopped";
+  const target = formatDaemonTarget(repository);
   return {
     success: true,
     message: !tokenResult.token
-      ? `Daemon is configured but credentials are missing (${tokenResult.error}).`
+      ? `Daemon is configured for ${target}, but GitHub credentials are missing. ${formatCredentialGuidance()}`
       : running
-        ? `Daemon is running for ${repository ?? "unknown-repo"}; ${queueSummary(queue)}.`
-        : `Daemon is stopped for ${repository ?? "unknown-repo"}; ${queueSummary(queue)}.`,
+        ? `Daemon is running for ${target}; ${queueSummary(queue)}.`
+        : `Daemon is stopped for ${target}; ${queueSummary(queue)}. Use \`omx daemon start\` for background polling or \`omx daemon run-once\` for a foreground pass.`,
     state: {
       ...state,
       isRunning: running,

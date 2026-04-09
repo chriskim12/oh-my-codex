@@ -9,6 +9,7 @@ import {
 } from "../daemon/index.js";
 
 const DAEMON_HELP = `Usage:
+  omx daemon scaffold
   omx daemon start
   omx daemon stop
   omx daemon status
@@ -17,11 +18,9 @@ const DAEMON_HELP = `Usage:
   omx daemon reject <item-id>
 
 Notes:
-  - $setup-omx-daemon is the guided onboarding surface.
-  - The CLI owns runtime lifecycle; start/stop/status/run-once manage the current worktree.
-  - If the daemon is not initialized yet, use the setup skill or:
-      omx daemon scaffold
-    to create tracked .omx/daemon inputs.`;
+  - $setup-omx-daemon is the guided onboarding wrapper for this command surface.
+  - The CLI owns current-worktree lifecycle: scaffold/start/stop/status/run-once/approve/reject.
+  - If tracked .omx/daemon inputs are missing, run the setup skill or \`omx daemon scaffold\`.`;
 
 export interface DaemonCommandDependencies {
   stdout?: (line: string) => void;

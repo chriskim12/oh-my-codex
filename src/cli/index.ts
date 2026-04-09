@@ -145,7 +145,7 @@ Usage:
   omx ask       Ask local provider CLI (claude|gemini) and write artifact output
   omx resume    Resume a previous interactive Codex session
   omx explore   Default read-only exploration entrypoint (may adaptively use sparkshell backend)
-  omx daemon    Manage daemon lifecycle for GitHub issue triage (start|stop|status|run-once|approve|reject)
+  omx daemon    Use $setup-omx-daemon for guided onboarding, then manage current-worktree daemon lifecycle
   omx session   Search prior local session transcripts and history artifacts
   omx agents-init [path]
                 Bootstrap lightweight AGENTS.md files for a repo/subtree

@@ -5,7 +5,7 @@ description: Scaffold and launch the OMX GitHub issue-triage daemon for the curr
 
 # Setup OMX Daemon
 
-Use this skill when the user wants a repo-local OMX daemon that continuously watches GitHub issues, drafts triage proposals, and maintains an approval-gated project wiki sink.
+Use this skill when the user wants a repo-local OMX daemon that continuously watches GitHub issues, drafts triage proposals, and maintains an approval-gated project wiki sink. This skill is the guided onboarding wrapper around the CLI-owned `omx daemon` scaffold/status/start workflow.
 
 ## What this skill should do
 

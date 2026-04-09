@@ -50,4 +50,16 @@ describe('catalog reader/contract', () => {
     const targetRaw = await readFile(join(process.cwd(), 'templates', 'catalog-manifest.json'), 'utf8');
     assert.equal(JSON.parse(targetRaw).catalogVersion, JSON.parse(sourceRaw).catalogVersion);
   });
+
+  it('keeps setup-omx-daemon discoverable across source, template, and generated public catalog artifacts', async () => {
+    const sourceManifest = JSON.parse(await readFile(join(process.cwd(), 'src', 'catalog', 'manifest.json'), 'utf8'));
+    const templateManifest = JSON.parse(await readFile(join(process.cwd(), 'templates', 'catalog-manifest.json'), 'utf8'));
+    const publicCatalog = JSON.parse(await readFile(join(process.cwd(), 'src', 'catalog', 'generated', 'public-catalog.json'), 'utf8'));
+
+    for (const catalog of [sourceManifest, templateManifest, publicCatalog]) {
+      assert.ok(
+        catalog.skills.some((entry: { name: string; status: string }) => entry.name === 'setup-omx-daemon' && entry.status === 'active'),
+      );
+    }
+  });
 });

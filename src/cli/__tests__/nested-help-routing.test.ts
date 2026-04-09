@@ -23,10 +23,21 @@ function runOmx(cwd: string, argv: string[]) {
 }
 
 describe('nested help routing', () => {
+  it('keeps top-level daemon help aligned with guided onboarding', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'omx-top-help-'));
+    try {
+      const result = runOmx(cwd, ['--help']);
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      assert.match(result.stdout, /omx daemon\s+Use \$setup-omx-daemon for guided onboarding/i);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   for (const [argv, expectedUsage] of [
     [['ask', '--help'], /Usage:\s*omx ask <claude\|gemini> <question or task>/i],
     [['autoresearch', '--help'], /Usage:[\s\S]*omx autoresearch <mission-dir>/i],
-    [['daemon', '--help'], /omx daemon start/i],
+    [['daemon', '--help'], /omx daemon scaffold/i],
     [['hud', '--help'], /Usage:\s*\n\s*omx hud\s+Show current HUD state/i],
     [['hooks', '--help'], /Usage:\s*\n\s*omx hooks init/i],
     [['state', '--help'], /Usage:\s*omx state <read\|write\|clear\|list-active\|get-status>/i],

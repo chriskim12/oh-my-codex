@@ -1,6 +1,7 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -10,6 +11,8 @@ import {
   resolveGitHubToken,
   runOmxDaemonOnce,
   scaffoldOmxDaemonFiles,
+  startOmxDaemon,
+  stopOmxDaemon,
 } from "../index.js";
 
 const originalFetch = globalThis.fetch;
@@ -105,8 +108,67 @@ describe("omx daemon runtime", () => {
       const status = getOmxDaemonStatus(cwd);
       assert.equal(status.success, true);
       assert.match(status.message, /not initialized/i);
+      assert.match(status.message, /\$setup-omx-daemon/i);
       assert.equal(status.state?.statusReason, "not-initialized");
     } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("reports actionable stopped and missing-credential statuses after scaffold", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "omx-daemon-status-"));
+    const originalPath = process.env.PATH;
+    try {
+      await scaffoldOmxDaemonFiles(cwd);
+      await writeFile(
+        join(cwd, ".omx", "daemon", "daemon.config.json"),
+        JSON.stringify({
+          githubCredentialSource: "config-token-ref",
+          githubTokenEnvVar: "OMX_DAEMON_TEST_TOKEN",
+        }, null, 2),
+      );
+
+      delete process.env.GH_TOKEN;
+      delete process.env.GITHUB_TOKEN;
+      delete process.env.OMX_DAEMON_TEST_TOKEN;
+      process.env.PATH = "";
+
+      const missingCredentials = getOmxDaemonStatus(cwd);
+      assert.equal(missingCredentials.success, true);
+      assert.equal(missingCredentials.state?.statusReason, "missing-credentials");
+      assert.match(missingCredentials.message, /GitHub credentials are missing/i);
+      assert.match(missingCredentials.message, /GITHUB_TOKEN/i);
+      assert.match(missingCredentials.message, /gh auth token/i);
+
+      process.env.PATH = originalPath;
+      process.env.OMX_DAEMON_TEST_TOKEN = "token-from-env";
+      const stopped = getOmxDaemonStatus(cwd);
+      assert.equal(stopped.success, true);
+      assert.equal(stopped.state?.statusReason, "stopped");
+      assert.match(stopped.message, /Daemon is stopped/i);
+      assert.match(stopped.message, /omx daemon start/i);
+      assert.match(stopped.message, /omx daemon run-once/i);
+    } finally {
+      if (typeof originalPath === "string") process.env.PATH = originalPath; else delete process.env.PATH;
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("reports running status when the daemon loop is active", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "omx-daemon-status-"));
+    try {
+      await scaffoldOmxDaemonFiles(cwd);
+      process.env.GH_TOKEN = "token-from-env";
+
+      const start = startOmxDaemon(cwd);
+      assert.equal(start.success, true, start.error ?? start.message);
+
+      const running = getOmxDaemonStatus(cwd);
+      assert.equal(running.success, true);
+      assert.equal(running.state?.statusReason, "running");
+      assert.match(running.message, /Daemon is running/i);
+    } finally {
+      stopOmxDaemon(cwd);
       await rm(cwd, { recursive: true, force: true });
     }
   });
