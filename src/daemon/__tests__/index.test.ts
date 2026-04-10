@@ -61,6 +61,7 @@ describe("omx daemon runtime", () => {
           pollIntervalMs: 10000,
           maxIssuesPerRun: 5,
           knowledgeSink: "docs/project-wiki",
+          applyGitHubLabelsOnApprove: true,
         }, null, 2),
       );
       process.env.GH_TOKEN = "token-from-env";
@@ -90,6 +91,7 @@ describe("omx daemon runtime", () => {
       assert.equal(runResult.queue?.length, 1);
       const item = runResult.queue?.[0];
       assert.ok(item);
+      assert.deepEqual(item.transitions.map((entry) => entry.state), ["proposed", "queued"]);
       assert.equal(existsSync(join(cwd, ".omx", "state", "daemon", "outbox", `issue-${item?.id}.md`)), true);
 
       const approveResult = await approveOmxDaemonItem(cwd, item!.id);
@@ -97,6 +99,43 @@ describe("omx daemon runtime", () => {
       assert.equal(existsSync(join(cwd, "docs", "project-wiki", "issue-42.md")), true);
       const published = await readFile(join(cwd, "docs", "project-wiki", "issue-42.md"), "utf-8");
       assert.match(published, /Approved at:/);
+      const approvedItem = approveResult.queue?.find((entry) => entry.id === item?.id);
+      assert.ok(approvedItem);
+      assert.deepEqual(approvedItem.transitions.map((entry) => entry.state), ["proposed", "queued", "approved", "published"]);
+      const log = await readFile(join(cwd, ".omx", "state", "daemon", "daemon.log"), "utf-8");
+      assert.match(log, /Applied approved GitHub labels to issue #42/i);
+      assert.match(log, /Published approved queue item/i);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("surfaces actionable insufficient-permission status after a 403 poll failure", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "omx-daemon-perms-"));
+    try {
+      await scaffoldOmxDaemonFiles(cwd);
+      await writeFile(
+        join(cwd, ".omx", "daemon", "daemon.config.json"),
+        JSON.stringify({
+          repository: "octo/example",
+          githubCredentialSource: "env",
+          githubTokenEnvVar: "GH_TOKEN",
+        }, null, 2),
+      );
+      process.env.GH_TOKEN = "token-from-env";
+      globalThis.fetch = (async () => new Response("Resource not accessible by integration", { status: 403 })) as typeof fetch;
+
+      const runResult = await runOmxDaemonOnce(cwd);
+      assert.equal(runResult.success, false);
+      assert.equal(runResult.state?.statusReason, "insufficient-permissions");
+      assert.match(runResult.message, /permissions are insufficient/i);
+      assert.match(runResult.error ?? "", /issue-read permission/i);
+
+      const status = getOmxDaemonStatus(cwd);
+      assert.equal(status.success, true);
+      assert.equal(status.state?.statusReason, "insufficient-permissions");
+      assert.match(status.message, /permissions are insufficient/i);
+      assert.match(status.message, /issue-read permission/i);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

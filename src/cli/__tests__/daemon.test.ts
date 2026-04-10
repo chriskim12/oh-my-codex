@@ -1,9 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { daemonCommand } from "../daemon.js";
+import { runOmxDaemonOnce } from "../../daemon/index.js";
 
 describe("omx daemon CLI", () => {
   it("prints command-local help", async () => {
@@ -106,6 +107,46 @@ describe("omx daemon CLI", () => {
       assert.match(lines.join("\n"), /Daemon is stopped/i);
       assert.match(lines.join("\n"), /queued=0, published=0, total=0/);
     } finally {
+      if (typeof previousGhToken === "string") process.env.GH_TOKEN = previousGhToken;
+      else delete process.env.GH_TOKEN;
+      process.chdir(previous);
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("surfaces insufficient-permission guidance after a failed poll", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "omx-daemon-cli-"));
+    const previous = process.cwd();
+    const previousGhToken = process.env.GH_TOKEN;
+    const lines: string[] = [];
+    const originalFetch = globalThis.fetch;
+    process.chdir(cwd);
+    process.env.GH_TOKEN = "test-token";
+    globalThis.fetch = (async () => new Response("Resource not accessible by integration", { status: 403 })) as typeof fetch;
+    try {
+      await daemonCommand(["scaffold"], {
+        stdout: () => undefined,
+        stderr: () => undefined,
+      });
+      await writeFile(
+        join(cwd, ".omx", "daemon", "daemon.config.json"),
+        JSON.stringify({
+          repository: "octo/example",
+          githubCredentialSource: "env",
+          githubTokenEnvVar: "GH_TOKEN",
+        }, null, 2),
+      );
+      const runOnce = await runOmxDaemonOnce(cwd);
+      if (runOnce.message) lines.push(runOnce.message);
+      if (runOnce.error) lines.push(runOnce.error);
+      await daemonCommand(["status"], {
+        stdout: (line) => lines.push(line),
+        stderr: (line) => lines.push(line),
+      });
+      assert.match(lines.join("\n"), /permissions are insufficient/i);
+      assert.match(lines.join("\n"), /issue-read permission/i);
+    } finally {
+      globalThis.fetch = originalFetch;
       if (typeof previousGhToken === "string") process.env.GH_TOKEN = previousGhToken;
       else delete process.env.GH_TOKEN;
       process.chdir(previous);

@@ -29,6 +29,13 @@ const DEFAULT_KNOWLEDGE_SINK = "docs/project-wiki";
 export type GitHubCredentialSource = "config-token-ref" | "env" | "gh-auth";
 export type QueueItemStatus = "queued" | "approved" | "rejected" | "published";
 export type DaemonPriority = "high" | "medium" | "low";
+export type QueueTransitionState = "proposed" | "queued" | "approved" | "rejected" | "published";
+
+export interface OmxDaemonQueueTransition {
+  state: QueueTransitionState;
+  at: string;
+  note?: string;
+}
 
 export interface OmxDaemonConfig {
   repository?: string;
@@ -59,6 +66,7 @@ export interface OmxDaemonQueueItem {
   publicationPath: string;
   publicationReason: string;
   githubLabelMutationApplied?: boolean;
+  transitions: OmxDaemonQueueTransition[];
 }
 
 export interface OmxDaemonState {
@@ -91,6 +99,18 @@ export interface ResolveGitHubTokenResult {
   token: string | null;
   source: "config-token-ref" | "GH_TOKEN" | "GITHUB_TOKEN" | "gh-auth" | "none";
   error?: string;
+}
+
+class GitHubPermissionError extends Error {
+  readonly status: number;
+  readonly permissionClass: "issue-read" | "issue-write";
+
+  constructor(status: number, permissionClass: "issue-read" | "issue-write", message: string) {
+    super(message);
+    this.name = "GitHubPermissionError";
+    this.status = status;
+    this.permissionClass = permissionClass;
+  }
 }
 
 interface GitHubIssue {
@@ -270,9 +290,16 @@ function writeDaemonState(projectRoot: string, state: OmxDaemonState): void {
   writeJsonFile(paths.statePath, state);
 }
 
+function normalizeQueueItem(item: OmxDaemonQueueItem): OmxDaemonQueueItem {
+  return {
+    ...item,
+    transitions: Array.isArray(item.transitions) ? item.transitions : [],
+  };
+}
+
 function readQueue(projectRoot = process.cwd()): OmxDaemonQueueItem[] {
   const paths = daemonPaths(projectRoot);
-  return readJsonFile(paths.queuePath, [] as OmxDaemonQueueItem[]);
+  return readJsonFile(paths.queuePath, [] as OmxDaemonQueueItem[]).map(normalizeQueueItem);
 }
 
 function writeQueue(projectRoot: string, queue: OmxDaemonQueueItem[]): void {
@@ -523,6 +550,21 @@ function formatCredentialGuidance(): string {
   return "Check .omx/daemon/daemon.config.json, GH_TOKEN, GITHUB_TOKEN, or gh auth token.";
 }
 
+function formatPermissionGuidance(permissionClass: "issue-read" | "issue-write"): string {
+  return permissionClass === "issue-write"
+    ? "Daemon approval needs issue-write permission to apply approved GitHub mutations."
+    : "Daemon polling needs issue-read permission to list and evaluate GitHub issues.";
+}
+
+function appendTransition(
+  item: OmxDaemonQueueItem,
+  state: QueueTransitionState,
+  note?: string,
+  at = new Date().toISOString(),
+): void {
+  item.transitions.push({ state, at, ...(note ? { note } : {}) });
+}
+
 function createQueueItem(
   projectRoot: string,
   config: OmxDaemonConfig | null,
@@ -552,6 +594,10 @@ function createQueueItem(
     draftPath,
     publicationPath,
     publicationReason: `Awaiting approval before publishing knowledge update or applying GitHub mutations for issue #${issue.number}.`,
+    transitions: [
+      { state: "proposed", at: timestamp, note: "Drafted triage summary and outbox artifact." },
+      { state: "queued", at: timestamp, note: "Queued for approval before publication or GitHub mutation." },
+    ],
   };
 }
 
@@ -663,6 +709,13 @@ async function fetchOpenIssues(repository: string, token: string, maxIssues: num
   });
   if (!response.ok) {
     const body = await response.text();
+    if (response.status === 401 || response.status === 403) {
+      throw new GitHubPermissionError(
+        response.status,
+        "issue-read",
+        `GitHub issue fetch failed (${response.status}): ${formatPermissionGuidance("issue-read")} ${body.slice(0, 300)}`.trim(),
+      );
+    }
     throw new Error(`GitHub issue fetch failed (${response.status}): ${body.slice(0, 300)}`);
   }
   const issues = await response.json() as GitHubIssue[];
@@ -683,6 +736,13 @@ async function applyApprovedGitHubLabels(repository: string, item: OmxDaemonQueu
   });
   if (!response.ok) {
     const body = await response.text();
+    if (response.status === 401 || response.status === 403) {
+      throw new GitHubPermissionError(
+        response.status,
+        "issue-write",
+        `GitHub label update failed (${response.status}): ${formatPermissionGuidance("issue-write")} ${body.slice(0, 300)}`.trim(),
+      );
+    }
     throw new Error(`GitHub label update failed (${response.status}): ${body.slice(0, 300)}`);
   }
 }
@@ -794,12 +854,15 @@ export async function runOmxDaemonOnce(projectRoot = process.cwd()): Promise<Dae
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const statusReason = error instanceof GitHubPermissionError
+      ? "insufficient-permissions"
+      : "poll-failed";
     const nextState: OmxDaemonState = {
       ...state,
       repository,
       credentialSource: tokenResult.source,
       lastPollAt: new Date().toISOString(),
-      statusReason: "poll-failed",
+      statusReason,
       lastError: message,
       processedIssueKeys,
     };
@@ -807,7 +870,9 @@ export async function runOmxDaemonOnce(projectRoot = process.cwd()): Promise<Dae
     logToFile(paths.logPath, `ERROR ${message}`);
     return {
       success: false,
-      message: "Daemon poll failed.",
+      message: statusReason === "insufficient-permissions"
+        ? "Daemon poll failed because GitHub permissions are insufficient."
+        : "Daemon poll failed.",
       state: nextState,
       queue,
       error: message,
@@ -832,20 +897,50 @@ export async function approveOmxDaemonItem(projectRoot: string, itemId: string):
   const tokenResult = resolveGitHubToken(config);
   const approvedAt = new Date().toISOString();
 
-  await mkdir(resolveKnowledgeSinkDir(projectRoot, config), { recursive: true });
-  const draft = await readFile(item.draftPath, "utf-8");
-  await writeFile(item.publicationPath, `${draft}\n\n---\nApproved at: ${approvedAt}\n`, "utf-8");
-
   let githubLabelMutationApplied = false;
-  if (config?.applyGitHubLabelsOnApprove && repository && tokenResult.token) {
-    await applyApprovedGitHubLabels(repository, item, tokenResult.token);
-    githubLabelMutationApplied = true;
+  try {
+    appendTransition(item, "approved", "Approval accepted; publishing immediately.", approvedAt);
+    if (config?.applyGitHubLabelsOnApprove && repository && tokenResult.token) {
+      await applyApprovedGitHubLabels(repository, item, tokenResult.token);
+      githubLabelMutationApplied = true;
+      logToFile(paths.logPath, `Applied approved GitHub labels to issue #${item.issueNumber}: ${item.recommendedLabels.join(", ")}`);
+    }
+
+    await mkdir(resolveKnowledgeSinkDir(projectRoot, config), { recursive: true });
+    const draft = await readFile(item.draftPath, "utf-8");
+    await writeFile(item.publicationPath, `${draft}\n\n---\nApproved at: ${approvedAt}\n`, "utf-8");
+  } catch (error) {
+    item.transitions = item.transitions.filter((entry) => !(entry.state === "approved" && entry.at === approvedAt));
+    const message = error instanceof Error ? error.message : String(error);
+    const statusReason = error instanceof GitHubPermissionError
+      ? "insufficient-permissions"
+      : "approval-failed";
+    const nextState: OmxDaemonState = {
+      ...state,
+      repository,
+      credentialSource: tokenResult.source,
+      statusReason,
+      lastError: message,
+    };
+    writeQueue(projectRoot, queue);
+    writeDaemonState(projectRoot, nextState);
+    logToFile(paths.logPath, `ERROR approval ${itemId}: ${message}`);
+    return {
+      success: false,
+      message: statusReason === "insufficient-permissions"
+        ? "Approval could not apply GitHub mutations because permissions are insufficient."
+        : `Approval failed for ${itemId}.`,
+      state: nextState,
+      queue,
+      error: message,
+    };
   }
 
   item.status = "published";
   item.approvedAt = approvedAt;
   item.publishedAt = approvedAt;
   item.githubLabelMutationApplied = githubLabelMutationApplied;
+  appendTransition(item, "published", "Approved publication written to the knowledge sink.", approvedAt);
 
   const nextState: OmxDaemonState = {
     ...state,
@@ -878,6 +973,7 @@ export function rejectOmxDaemonItem(projectRoot: string, itemId: string): Daemon
   }
   item.status = "rejected";
   item.rejectedAt = new Date().toISOString();
+  appendTransition(item, "rejected", "Rejected without applying external mutations.", item.rejectedAt);
   const nextState: OmxDaemonState = {
     ...state,
     queueSize: queue.filter((entry) => entry.status === "queued").length,
@@ -918,12 +1014,16 @@ export function getOmxDaemonStatus(projectRoot = process.cwd()): DaemonResponse 
   const running = isOmxDaemonRunning(projectRoot);
   const statusReason = !tokenResult.token
     ? "missing-credentials"
+    : state.statusReason === "insufficient-permissions"
+      ? "insufficient-permissions"
     : running ? "running" : "stopped";
   const target = formatDaemonTarget(repository);
   return {
     success: true,
     message: !tokenResult.token
       ? `Daemon is configured for ${target}, but GitHub credentials are missing. ${formatCredentialGuidance()}`
+      : statusReason === "insufficient-permissions"
+        ? `Daemon is configured for ${target}, but GitHub permissions are insufficient. ${state.lastError ?? formatPermissionGuidance("issue-read")}`
       : running
         ? `Daemon is running for ${target}; ${queueSummary(queue)}.`
         : `Daemon is stopped for ${target}; ${queueSummary(queue)}. Use \`omx daemon start\` for background polling or \`omx daemon run-once\` for a foreground pass.`,
