@@ -38,6 +38,19 @@ export type GitHubCredentialSource = "config-token-ref" | "env" | "gh-auth";
 export type QueueItemStatus = "queued" | "approved" | "rejected" | "published";
 export type DaemonPriority = "high" | "medium" | "low";
 export type QueueTransitionState = "proposed" | "queued" | "approved" | "rejected" | "published";
+export type DaemonStatusReason =
+  | "not-initialized"
+  | "missing-repository"
+  | "missing-credentials"
+  | "insufficient-permissions"
+  | "poll-failed"
+  | "approval-failed"
+  | "triage-updated"
+  | "triage-noop"
+  | "approved-published"
+  | "rejected"
+  | "running"
+  | "stopped";
 
 export interface OmxDaemonQueueTransition {
   state: QueueTransitionState;
@@ -575,11 +588,8 @@ function evaluateIssue(issue: GitHubIssue, gate: ParsedIssueGate, context: { pro
 }
 
 function queueSummary(queue: OmxDaemonQueueItem[]): string {
-  const queued = queue.filter((item) => item.status === "queued").length;
-  const approved = queue.filter((item) => item.status === "approved").length;
-  const rejected = queue.filter((item) => item.status === "rejected").length;
-  const published = queue.filter((item) => item.status === "published").length;
-  return `queued=${queued}, approved=${approved}, rejected=${rejected}, published=${published}, total=${queue.length}`;
+  const counts = countQueueStatuses(queue);
+  return `queued=${counts.queued}, approved=${counts.approved}, rejected=${counts.rejected}, published=${counts.published}, total=${counts.total}`;
 }
 
 function formatDaemonTarget(repository: string | null): string {
@@ -607,6 +617,17 @@ function appendTransition(
   at = new Date().toISOString(),
 ): void {
   item.transitions.push({ state, at, ...(note ? { note } : {}) });
+}
+
+function countQueueStatuses(queue: OmxDaemonQueueItem[]): Record<QueueItemStatus | "total", number> {
+  return queue.reduce<Record<QueueItemStatus | "total", number>>(
+    (counts, item) => {
+      counts[item.status] += 1;
+      counts.total += 1;
+      return counts;
+    },
+    { queued: 0, approved: 0, rejected: 0, published: 0, total: 0 },
+  );
 }
 
 function formatLastActivity(state: OmxDaemonState): string {
@@ -856,6 +877,7 @@ export async function runOmxDaemonOnce(projectRoot = process.cwd()): Promise<Dae
   const processedIssueKeys = { ...(state.processedIssueKeys ?? {}) };
 
   try {
+    const now = new Date().toISOString();
     const issues = await fetchOpenIssues(repository, tokenResult.token, normalizeConfig(config ?? {}).maxIssuesPerRun);
     const queuedIssueIds = new Set(queue.filter((item) => item.status === "queued").map((item) => `${item.issueNumber}:${item.issueUpdatedAt}`));
     let created = 0;
@@ -880,9 +902,9 @@ export async function runOmxDaemonOnce(projectRoot = process.cwd()): Promise<Dae
       ...state,
       repository,
       credentialSource: tokenResult.source,
-      lastPollAt: new Date().toISOString(),
-      lastIssueScanAt: new Date().toISOString(),
-      lastTriageAt: created > 0 ? new Date().toISOString() : state.lastTriageAt,
+      lastPollAt: now,
+      lastIssueScanAt: now,
+      lastTriageAt: created > 0 ? now : state.lastTriageAt,
       queueSize: queue.filter((item) => item.status === "queued").length,
       proposalsCreated: (state.proposalsCreated ?? 0) + created,
       statusReason: created > 0 ? "triage-updated" : "triage-noop",
@@ -1110,25 +1132,34 @@ export function getOmxDaemonStatus(projectRoot = process.cwd()): DaemonResponse 
   const tokenResult = resolveGitHubToken(config);
   const repository = resolveRepository(projectRoot, config);
   const running = isOmxDaemonRunning(projectRoot);
-  const statusReason = !tokenResult.token
-    ? "missing-credentials"
-    : !repository
-      ? "missing-repository"
-    : state.statusReason === "insufficient-permissions"
-      ? "insufficient-permissions"
-    : running ? "running" : "stopped";
+  let statusReason: DaemonStatusReason;
+  if (!tokenResult.token) {
+    statusReason = "missing-credentials";
+  } else if (!repository) {
+    statusReason = "missing-repository";
+  } else if (state.statusReason === "insufficient-permissions") {
+    statusReason = "insufficient-permissions";
+  } else if (running) {
+    statusReason = "running";
+  } else {
+    statusReason = "stopped";
+  }
   const target = formatDaemonTarget(repository);
+  let message: string;
+  if (statusReason === "missing-credentials") {
+    message = `Daemon is configured for ${target}, but GitHub credentials are missing. ${formatCredentialGuidance()}`;
+  } else if (statusReason === "missing-repository") {
+    message = `Daemon is configured for ${target}, but the GitHub repository is not resolvable. ${formatRepositoryGuidance()}`;
+  } else if (statusReason === "insufficient-permissions") {
+    message = `Daemon is configured for ${target}, but GitHub permissions are insufficient. ${state.lastError ?? formatPermissionGuidance("issue-read")}`;
+  } else if (running) {
+    message = `Daemon is running for ${target}; ${queueSummary(queue)}; ${formatLastActivity(state)}.`;
+  } else {
+    message = `Daemon is stopped for ${target}; ${queueSummary(queue)}; ${formatLastActivity(state)}. Use \`omx daemon start\` for background polling or \`omx daemon run-once\` for a foreground pass.`;
+  }
   return {
     success: true,
-    message: !tokenResult.token
-      ? `Daemon is configured for ${target}, but GitHub credentials are missing. ${formatCredentialGuidance()}`
-      : !repository
-        ? `Daemon is configured for ${target}, but the GitHub repository is not resolvable. ${formatRepositoryGuidance()}`
-      : statusReason === "insufficient-permissions"
-        ? `Daemon is configured for ${target}, but GitHub permissions are insufficient. ${state.lastError ?? formatPermissionGuidance("issue-read")}`
-      : running
-        ? `Daemon is running for ${target}; ${queueSummary(queue)}; ${formatLastActivity(state)}.`
-        : `Daemon is stopped for ${target}; ${queueSummary(queue)}; ${formatLastActivity(state)}. Use \`omx daemon start\` for background polling or \`omx daemon run-once\` for a foreground pass.`,
+    message,
     state: {
       ...state,
       isRunning: running,

@@ -20,6 +20,14 @@ const originalFetch = globalThis.fetch;
 const originalGhToken = process.env.GH_TOKEN;
 const originalGithubToken = process.env.GITHUB_TOKEN;
 
+function daemonConfigPath(cwd: string): string {
+  return join(cwd, ".omx", "daemon", "daemon.config.json");
+}
+
+async function writeDaemonConfig(cwd: string, config: Record<string, unknown>): Promise<void> {
+  await writeFile(daemonConfigPath(cwd), JSON.stringify(config, null, 2));
+}
+
 afterEach(() => {
   globalThis.fetch = originalFetch;
   if (typeof originalGhToken === "string") process.env.GH_TOKEN = originalGhToken; else delete process.env.GH_TOKEN;
@@ -73,18 +81,15 @@ describe("omx daemon runtime", () => {
     const cwd = await mkdtemp(join(tmpdir(), "omx-daemon-runonce-"));
     try {
       await scaffoldOmxDaemonFiles(cwd);
-      await writeFile(
-        join(cwd, ".omx", "daemon", "daemon.config.json"),
-        JSON.stringify({
-          repository: "octo/example",
-          githubCredentialSource: "env",
-          githubTokenEnvVar: "GH_TOKEN",
-          pollIntervalMs: 10000,
-          maxIssuesPerRun: 5,
-          knowledgeSink: "docs/project-wiki",
-          applyGitHubLabelsOnApprove: true,
-        }, null, 2),
-      );
+      await writeDaemonConfig(cwd, {
+        repository: "octo/example",
+        githubCredentialSource: "env",
+        githubTokenEnvVar: "GH_TOKEN",
+        pollIntervalMs: 10000,
+        maxIssuesPerRun: 5,
+        knowledgeSink: "docs/project-wiki",
+        applyGitHubLabelsOnApprove: true,
+      });
       process.env.GH_TOKEN = "token-from-env";
       globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
         const url = String(input);
@@ -135,14 +140,11 @@ describe("omx daemon runtime", () => {
     const cwd = await mkdtemp(join(tmpdir(), "omx-daemon-perms-"));
     try {
       await scaffoldOmxDaemonFiles(cwd);
-      await writeFile(
-        join(cwd, ".omx", "daemon", "daemon.config.json"),
-        JSON.stringify({
-          repository: "octo/example",
-          githubCredentialSource: "env",
-          githubTokenEnvVar: "GH_TOKEN",
-        }, null, 2),
-      );
+      await writeDaemonConfig(cwd, {
+        repository: "octo/example",
+        githubCredentialSource: "env",
+        githubTokenEnvVar: "GH_TOKEN",
+      });
       process.env.GH_TOKEN = "token-from-env";
       globalThis.fetch = (async () => new Response("Resource not accessible by integration", { status: 403 })) as typeof fetch;
 
@@ -180,14 +182,11 @@ describe("omx daemon runtime", () => {
     const originalPath = process.env.PATH;
     try {
       await scaffoldOmxDaemonFiles(cwd);
-      await writeFile(
-        join(cwd, ".omx", "daemon", "daemon.config.json"),
-        JSON.stringify({
-          repository: "octo/example",
-          githubCredentialSource: "config-token-ref",
-          githubTokenEnvVar: "OMX_DAEMON_TEST_TOKEN",
-        }, null, 2),
-      );
+      await writeDaemonConfig(cwd, {
+        repository: "octo/example",
+        githubCredentialSource: "config-token-ref",
+        githubTokenEnvVar: "OMX_DAEMON_TEST_TOKEN",
+      });
 
       delete process.env.GH_TOKEN;
       delete process.env.GITHUB_TOKEN;
@@ -239,15 +238,12 @@ describe("omx daemon runtime", () => {
     const cwd = await mkdtemp(join(tmpdir(), "omx-daemon-status-"));
     try {
       await scaffoldOmxDaemonFiles(cwd);
-      await writeFile(
-        join(cwd, ".omx", "daemon", "daemon.config.json"),
-        JSON.stringify({
-          repository: "octo/example",
-          githubCredentialSource: "env",
-          githubTokenEnvVar: "GH_TOKEN",
-          maxIssuesPerRun: 5,
-        }, null, 2),
-      );
+      await writeDaemonConfig(cwd, {
+        repository: "octo/example",
+        githubCredentialSource: "env",
+        githubTokenEnvVar: "GH_TOKEN",
+        maxIssuesPerRun: 5,
+      });
       process.env.GH_TOKEN = "token-from-env";
       globalThis.fetch = (async (input: string | URL) => {
         const url = String(input);
@@ -288,16 +284,13 @@ describe("omx daemon runtime", () => {
     const cwd = await mkdtemp(join(tmpdir(), "omx-daemon-approve-"));
     try {
       await scaffoldOmxDaemonFiles(cwd);
-      await writeFile(
-        join(cwd, ".omx", "daemon", "daemon.config.json"),
-        JSON.stringify({
-          repository: "octo/example",
-          githubCredentialSource: "env",
-          githubTokenEnvVar: "GH_TOKEN",
-          maxIssuesPerRun: 5,
-          applyGitHubLabelsOnApprove: true,
-        }, null, 2),
-      );
+      await writeDaemonConfig(cwd, {
+        repository: "octo/example",
+        githubCredentialSource: "env",
+        githubTokenEnvVar: "GH_TOKEN",
+        maxIssuesPerRun: 5,
+        applyGitHubLabelsOnApprove: true,
+      });
       process.env.GH_TOKEN = "token-from-env";
       globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
         const url = String(input);
@@ -338,15 +331,12 @@ describe("omx daemon runtime", () => {
     const cwd = await mkdtemp(join(tmpdir(), "omx-daemon-reject-"));
     try {
       await scaffoldOmxDaemonFiles(cwd);
-      await writeFile(
-        join(cwd, ".omx", "daemon", "daemon.config.json"),
-        JSON.stringify({
-          repository: "octo/example",
-          githubCredentialSource: "env",
-          githubTokenEnvVar: "GH_TOKEN",
-          maxIssuesPerRun: 5,
-        }, null, 2),
-      );
+      await writeDaemonConfig(cwd, {
+        repository: "octo/example",
+        githubCredentialSource: "env",
+        githubTokenEnvVar: "GH_TOKEN",
+        maxIssuesPerRun: 5,
+      });
       process.env.GH_TOKEN = "token-from-env";
       globalThis.fetch = (async (input: string | URL) => {
         const url = String(input);
@@ -383,14 +373,11 @@ describe("omx daemon runtime", () => {
     const cwd = await mkdtemp(join(tmpdir(), "omx-daemon-status-"));
     try {
       await scaffoldOmxDaemonFiles(cwd);
-      await writeFile(
-        join(cwd, ".omx", "daemon", "daemon.config.json"),
-        JSON.stringify({
-          repository: "octo/example",
-          githubCredentialSource: "env",
-          githubTokenEnvVar: "GH_TOKEN",
-        }, null, 2),
-      );
+      await writeDaemonConfig(cwd, {
+        repository: "octo/example",
+        githubCredentialSource: "env",
+        githubTokenEnvVar: "GH_TOKEN",
+      });
       process.env.GH_TOKEN = "token-from-env";
 
       const start = startOmxDaemon(cwd);
