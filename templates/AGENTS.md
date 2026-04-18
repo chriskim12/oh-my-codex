@@ -193,7 +193,21 @@ Key roles:
 - `executor` — implementation and refactoring
 - `verifier` — completion evidence and validation
 
-Specialists remain available through the role catalog and native child-agent surfaces when the task clearly benefits from them.
+Specialist boundary matrix for nearby investigation roles:
+
+| Role | Owns | Does not own | Preferred handoff trigger |
+|-------------|-------|--------|---------------------------|
+| `explore` | Internal repo search, file/symbol/pattern mapping, local relationship tracing, implementation discovery | External docs lookup, package/SDK comparison, adoption recommendations | Report upward for `researcher` when the answer depends on external/versioned docs; report upward for `dependency-expert` when the task becomes package selection, risk, or migration evaluation |
+| `researcher` | Official docs lookup, external reference gathering, version-aware technical guidance, sourced answers for external technologies | Internal repo mapping, local implementation discovery, package bake-offs or adoption recommendations | Report upward for `explore` when local usage or integration confirmation is needed; report upward for `dependency-expert` when the task becomes package/SDK selection or replacement |
+| `dependency-expert` | Package/SDK selection, candidate comparison, maintenance/risk/license evaluation, migration/adoption recommendations | Generic external how-to research, internal repo search, implementation ownership | Report upward for `explore` when local usage or compatibility inventory is needed; report upward for `researcher` when the task is primarily external docs/reference guidance rather than dependency choice |
+
+Preferred first role for common mixed requests:
+- Local code first, then external docs: `explore` → `researcher`
+- Local code first, then dependency choice/upgrade evaluation: `explore` → `dependency-expert`
+- External docs first, then local usage confirmation: `researcher` → `explore`
+- Dependency choice first, then local integration confirmation: `dependency-expert` → `explore`
+
+Specialists remain available through the role catalog and native child-agent surfaces when the task clearly benefits from them. Leaders should choose one primary owner, then route adjacent work via explicit upward handoff instead of letting a specialist absorb neighboring scope silently.
 </agent_catalog>
 
 ---
