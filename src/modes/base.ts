@@ -21,6 +21,7 @@ import {
   getStatePath,
   resolveStateScope,
 } from '../mcp/state-paths.js';
+import { syncRunStateFromModeState } from '../runtime/run-state.js';
 
 export interface ModeState {
   active: boolean;
@@ -129,6 +130,7 @@ export async function startMode(
     ? normalizeRalphModeStateOrThrow(withContext)
     : withContext;
   await writeFile(getStatePath(mode, projectRoot, scope.sessionId), JSON.stringify(state, null, 2));
+  await syncRunStateFromModeState(state, projectRoot, scope.sessionId);
   if (isTrackedWorkflowMode(mode)) {
     await syncCanonicalSkillStateForMode({
       cwd: projectRoot ?? process.cwd(),
@@ -201,6 +203,7 @@ export async function updateModeState(
     : updatedBase;
   const updated = withModeRuntimeContext(current, normalizedBase) as ModeState;
   await writeFile(getStatePath(mode, projectRoot, scope.sessionId), JSON.stringify(updated, null, 2));
+  await syncRunStateFromModeState(updated, projectRoot, scope.sessionId);
   if (isTrackedWorkflowMode(mode)) {
     await syncCanonicalSkillStateForMode({
       cwd: projectRoot ?? process.cwd(),
