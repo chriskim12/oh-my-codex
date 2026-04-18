@@ -4,11 +4,11 @@
  * Leverages Codex CLI's native multi_agent feature for multi-agent coordination.
  * Provides the staged pipeline: plan -> prd -> exec -> verify -> fix (loop)
  */
+import { isTerminalRunState } from '../runtime/run-outcome.js';
 
 export type TeamPhase = 'team-plan' | 'team-prd' | 'team-exec' | 'team-verify' | 'team-fix';
 export type TerminalPhase = 'complete' | 'failed' | 'cancelled';
 import type { TeamTask } from './state.js';
-const TERMINAL_PHASES: readonly TerminalPhase[] = ['complete', 'failed', 'cancelled'];
 const FIX_LOOP_EXCEEDED_REASON = 'team-fix loop limit reached';
 
 export interface TeamState {
@@ -42,7 +42,7 @@ export function isValidTransition(from: TeamPhase, to: TeamPhase | TerminalPhase
 }
 
 export function isTerminalPhase(phase: TeamPhase | TerminalPhase): phase is TerminalPhase {
-  return TERMINAL_PHASES.includes(phase as TerminalPhase);
+  return isTerminalRunState(phase);
 }
 
 export function canResumeTeamState(state: TeamState): boolean {

@@ -1,3 +1,5 @@
+import { isTerminalRunState } from '../../runtime/run-outcome.js';
+
 /**
  * Pure utility helpers shared across notify-hook modules.
  * No I/O, no side effects.
@@ -27,5 +29,5 @@ export function clampPct(value: any): number | null {
 }
 
 export function isTerminalPhase(phase: string): boolean {
-  return phase === 'complete' || phase === 'failed' || phase === 'cancelled';
+  return isTerminalRunState(phase);
 }

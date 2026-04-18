@@ -180,7 +180,7 @@ async function syncRootTeamModeStateOnTerminalPhase(
   phase: TeamPhase | TerminalPhase,
   cwd: string,
 ): Promise<void> {
-  if (phase !== 'complete' && phase !== 'failed' && phase !== 'cancelled') return;
+  if (!isTerminalPhase(phase)) return;
 
   try {
     const teamState = await readModeState('team', cwd);

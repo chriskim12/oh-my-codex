@@ -74,6 +74,18 @@ operator to clear incompatible state explicitly via `omx state ...` or the
 `omx_state.*` MCP tools before retrying. See
 `docs/contracts/multi-state-transition-contract.md`.
 
+## Run outcome vocabulary note
+
+For Issue #1718 PR1, native Stop/continuation readers should treat shared run
+outcomes as:
+
+- terminal: `finish`, `blocked_on_user`, `failed`, `cancelled`
+- non-terminal: `progress`, `continue`
+
+Legacy labels such as `complete`, `completed`, and `finished` remain compatible
+surface wording for now, but readers should normalize them to the shared
+`finish` meaning instead of treating each spelling as its own contract.
+
 ## UserPromptSubmit: triage advisory context
 
 `UserPromptSubmit` can now emit triage advisory context alongside keyword context. When no keyword matches, the triage layer classifies the prompt and may inject an advisory prompt-routing context string — this is advisory prompt-routing context that does not activate a skill or workflow by itself; it adds a developer-context hint the model may follow. Keywords remain the deterministic control surface: a matched keyword always takes precedence over triage output, and users can suppress triage injection per prompt with phrases such as `no workflow`, `just chat`, or `plain answer`.

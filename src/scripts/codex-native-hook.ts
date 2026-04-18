@@ -45,6 +45,7 @@ import { dispatchHookEvent } from "../hooks/extensibility/dispatcher.js";
 import { reconcileHudForPromptSubmit } from "../hud/reconcile.js";
 import { onSessionStart as buildWikiSessionStartContext } from "../wiki/lifecycle.js";
 import { readAutoresearchCompletionStatus, readAutoresearchModeState } from "../autoresearch/skill-validation.js";
+import { isTerminalRunState } from "../runtime/run-outcome.js";
 import { triagePrompt } from "../hooks/triage-heuristic.js";
 import { readTriageConfig } from "../hooks/triage-config.js";
 import {
@@ -77,8 +78,6 @@ export interface NativeHookDispatchResult {
   outputJson: Record<string, unknown> | null;
 }
 
-const TERMINAL_RALPH_PHASES = new Set(["complete", "failed", "cancelled"]);
-const TERMINAL_MODE_PHASES = new Set(["complete", "failed", "cancelled"]);
 const SKILL_STOP_BLOCKERS = new Set(["ralplan"]);
 const TEAM_TERMINAL_TASK_STATUSES = new Set(["completed", "failed"]);
 const NATIVE_STOP_STATE_FILE = "native-stop-state.json";
@@ -199,7 +198,7 @@ async function readJsonIfExists(path: string): Promise<Record<string, unknown> |
 
 function isNonTerminalPhase(value: unknown): boolean {
   const phase = safeString(value).trim().toLowerCase();
-  return phase !== "" && !TERMINAL_MODE_PHASES.has(phase);
+  return phase !== "" && !isTerminalRunState(phase);
 }
 
 function formatPhase(value: unknown, fallback = "active"): string {
@@ -236,7 +235,7 @@ async function readActiveRalphState(
     );
     if (
       sessionScoped?.active === true
-      && !TERMINAL_RALPH_PHASES.has(
+      && !isTerminalRunState(
         safeString(sessionScoped.current_phase).trim().toLowerCase(),
       )
     ) {
@@ -247,7 +246,7 @@ async function readActiveRalphState(
   if (sessionCandidates.length > 0) return null;
 
   const direct = await readJsonIfExists(join(stateDir, "ralph-state.json"));
-  if (direct?.active === true && !TERMINAL_RALPH_PHASES.has(safeString(direct.current_phase).trim().toLowerCase())) {
+  if (direct?.active === true && !isTerminalRunState(safeString(direct.current_phase).trim().toLowerCase())) {
     return direct;
   }
 
@@ -259,7 +258,7 @@ async function readActiveRalphState(
     const candidate = await readJsonIfExists(join(sessionsRoot, entry.name, "ralph-state.json"));
     if (
       candidate?.active === true
-      && !TERMINAL_RALPH_PHASES.has(
+      && !isTerminalRunState(
         safeString(candidate.current_phase).trim().toLowerCase(),
       )
     ) {
@@ -886,7 +885,7 @@ async function readBlockingSkillForStop(
         "planning",
       ),
     );
-    if (TERMINAL_MODE_PHASES.has(phase.toLowerCase()) || phase === "completing") {
+    if (isTerminalRunState(phase) || phase === "completing") {
       continue;
     }
 
