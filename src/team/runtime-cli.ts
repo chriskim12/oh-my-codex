@@ -11,9 +11,10 @@ import { readdirSync, readFileSync } from 'fs';
 import { writeFile, rename } from 'fs/promises';
 import { join } from 'path';
 import { startTeam, monitorTeam, shutdownTeam } from './runtime.js';
-import type { TeamRuntime, TeamShutdownSummary, StaleTeamSummary } from './runtime.js';
+import type { TeamRuntime, TeamShutdownSummary, StaleTeamSummary, TeamSnapshot } from './runtime.js';
 import { teamReadConfig as readTeamConfig } from './team-ops.js';
 import { resolveCanonicalTeamStateRoot } from './state-root.js';
+import { runUntilTerminal } from '../runtime/run-loop.js';
 
 async function promptStaleCleanup(summary: StaleTeamSummary): Promise<boolean> {
   process.stderr.write(
@@ -70,6 +71,11 @@ export interface TerminalCliResult {
 export interface LivePaneState {
   paneIds: string[];
   leaderPaneId: string;
+}
+
+interface MonitorLoopState {
+  snap: TeamSnapshot | null;
+  livePaneState: LivePaneState | null;
 }
 
 async function writePanesFile(
@@ -184,6 +190,15 @@ export function buildTerminalCliResult(
       + `Inspect with "omx team status ${teamName} --json" or "omx team api read-stall-state --input '{\"team_name\":\"${teamName}\"}' --json". `
       + `Run "omx team shutdown ${teamName}" (or --force after state capture) when explicit cleanup is desired.\n`,
   };
+}
+
+export function classifySnapshotPhase(
+  phase: string,
+): 'continue' | 'progress' | 'finish' | 'failed' | 'cancelled' {
+  if (phase === 'complete') return 'finish';
+  if (phase === 'failed') return 'failed';
+  if (phase === 'cancelled') return 'cancelled';
+  return phase === 'team-verify' ? 'progress' : 'continue';
 }
 
 export function normalizeAgentTypes(raw: string[], workerCount: number): TeamWorkerProvider[] {
@@ -341,26 +356,35 @@ async function main(): Promise<void> {
     process.stderr.write(`[runtime-cli] Failed to persist pane IDs: ${err}\n`);
   }
 
-  // Poll loop
-  while (pollActive) {
-    await new Promise(r => setTimeout(r, pollIntervalMs));
+  const loopResult = await runUntilTerminal<MonitorLoopState>(async () => {
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
 
-    if (!pollActive) break;
+    if (!pollActive) {
+      return {
+        outcome: 'cancelled',
+        state: { snap: null, livePaneState: null as LivePaneState | null },
+      };
+    }
 
     let snap;
     try {
       snap = await monitorTeam(teamName, cwd);
     } catch (err) {
       process.stderr.write(`[runtime-cli] monitorTeam error: ${err}\n`);
-      continue;
+      return {
+        outcome: 'continue',
+        state: { snap: null, livePaneState: null as LivePaneState | null },
+      };
     }
 
     if (!snap) {
       process.stderr.write(`[runtime-cli] monitorTeam returned null\n`);
-      continue;
+      return {
+        outcome: 'continue',
+        state: { snap: null, livePaneState: null as LivePaneState | null },
+      };
     }
 
-    // Refresh pane IDs (workers may have scaled)
     let livePaneState: LivePaneState | null = null;
     try {
       livePaneState = await loadLivePaneState(teamName, cwd);
@@ -376,17 +400,6 @@ async function main(): Promise<void> {
       `[runtime-cli] phase=${snap.phase} pending=${snap.tasks.pending} inProgress=${snap.tasks.in_progress} completed=${snap.tasks.completed} failed=${snap.tasks.failed} dead=${snap.deadWorkers.length} monitorMs=${perfMs.toFixed(0)}\n`,
     );
 
-    // Check completion
-    if (snap.phase === 'complete') {
-      exitWithoutShutdown('complete');
-      return;
-    }
-    if (snap.phase === 'failed' || snap.phase === 'cancelled') {
-      exitWithoutShutdown(snap.phase);
-      return;
-    }
-
-    // Check failure heuristics
     const hasOutstandingWork = (snap.tasks.pending + snap.tasks.in_progress) > 0;
     const liveWorkerPaneCount = livePaneState?.paneIds.length ?? 0;
     const { deadWorkerFailure, fixingWithNoWorkers } = detectDeadWorkerFailure(
@@ -398,11 +411,26 @@ async function main(): Promise<void> {
 
     if (deadWorkerFailure || fixingWithNoWorkers) {
       process.stderr.write(`[runtime-cli] Failure detected: deadWorkerFailure=${deadWorkerFailure} fixingWithNoWorkers=${fixingWithNoWorkers}\n`);
-      // Monitor-detected failure is still not an explicit shutdown request.
-      // Preserve team state for inspection and let the leader decide when to clean up.
-      exitWithoutShutdown('failed');
-      return;
+      return {
+        outcome: 'failed',
+        state: { snap, livePaneState },
+      };
     }
+
+    return {
+      outcome: classifySnapshotPhase(snap.phase),
+      state: { snap, livePaneState },
+    };
+  });
+
+  if (loopResult.outcome === 'finish') {
+    exitWithoutShutdown('complete');
+    return;
+  }
+
+  if (loopResult.outcome === 'failed' || loopResult.outcome === 'cancelled') {
+    exitWithoutShutdown(loopResult.outcome);
+    return;
   }
 }
 

@@ -74,6 +74,16 @@ describe('runtime-cli helpers', () => {
     assert.equal(liveBehavior.fixingWithNoWorkers, false);
   });
 
+  it('maps team monitor phases into shared run loop outcomes', async () => {
+    const runtimeCli = await loadRuntimeCliModule();
+
+    assert.equal(runtimeCli.classifySnapshotPhase('team-exec'), 'continue');
+    assert.equal(runtimeCli.classifySnapshotPhase('team-verify'), 'progress');
+    assert.equal(runtimeCli.classifySnapshotPhase('complete'), 'finish');
+    assert.equal(runtimeCli.classifySnapshotPhase('failed'), 'failed');
+    assert.equal(runtimeCli.classifySnapshotPhase('cancelled'), 'cancelled');
+  });
+
   it('reads task results from explicit OMX_TEAM_STATE_ROOT during shutdown collection', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'omx-runtime-cli-env-root-cwd-'));
     const explicitStateRoot = await mkdtemp(join(tmpdir(), 'omx-runtime-cli-env-root-state-'));
