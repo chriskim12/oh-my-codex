@@ -60,6 +60,19 @@ The approved OMX-native wiki backport keeps lifecycle ownership intentionally na
 - **PreCompact parity is intentionally deferred** in v1 unless a clearly OMX-native compaction seam exists.
 - **Routing should stay explicit**: prefer `$wiki` or task verbs like `wiki query` / `wiki add`, and avoid implicit bare `wiki` noun activation.
 
+## Explicit terminal compatibility
+
+OMX runtime/state surfaces now expose canonical terminal metadata through
+`explicit_terminal` while preserving legacy `run_outcome` compatibility.
+
+- Canonical statuses: `finished`, `blocked`, `failed`, `userinterlude`, `askuserQuestion`
+- Legacy compatibility remains: `finish`, `blocked_on_user`, `failed`, `cancelled`
+- `cancelled` remains a legacy/internal compatibility string; canonical docs
+  should prefer `userinterlude`
+- Deep-interview pending OMX question obligations persist the narrower
+  `deep_interview_question_lifecycle.status=askuserQuestion` contract without
+  forcing a big-bang migration of the whole mode state
+
 ## Combined workflow note
 
 Stop/continuation readers must interpret approved combined workflow state from

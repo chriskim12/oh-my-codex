@@ -50,6 +50,7 @@ import {
 	LEGACY_TEAM_MCP_TOOLS,
 	buildLegacyTeamDeprecationHint,
 } from "../team/api-interop.js";
+import { applyRunOutcomeContract, EXPLICIT_TERMINAL_LIFECYCLE_STATUSES } from "../runtime/run-outcome.js";
 
 const SUPPORTED_MODES = [
 	"autopilot",
@@ -167,6 +168,31 @@ export function buildStateServerTools() {
 					run_outcome: {
 						type: "string",
 						enum: ["continue", "finish", "blocked_on_user", "failed", "cancelled"],
+					},
+					explicit_terminal: {
+						oneOf: [
+							{
+								type: "string",
+								enum: [...EXPLICIT_TERMINAL_LIFECYCLE_STATUSES],
+							},
+							{
+								type: "object",
+								properties: {
+									status: {
+										type: "string",
+										enum: [...EXPLICIT_TERMINAL_LIFECYCLE_STATUSES],
+									},
+									legacy_run_outcome: {
+										type: "string",
+										enum: ["finish", "blocked_on_user", "failed", "cancelled"],
+									},
+								},
+								required: ["status"],
+								additionalProperties: true,
+							},
+						],
+						description:
+							"Canonical explicit-terminal lifecycle metadata. Legacy run_outcome remains the compatibility surface.",
 					},
 					error: { type: "string" },
 					state: { type: "object", description: "Additional custom fields" },
@@ -374,6 +400,15 @@ export async function handleStateToolCall(request: {
 							...fields,
 							...((customState as Record<string, unknown>) || {}),
 						} as Record<string, unknown>;
+						const explicitRunOutcome =
+							Object.prototype.hasOwnProperty.call(fields, "run_outcome") ||
+							(
+								customState != null &&
+								Object.prototype.hasOwnProperty.call(customState as Record<string, unknown>, "run_outcome")
+							);
+						if (!explicitRunOutcome) {
+							delete mergedRaw.run_outcome;
+						}
 						if (
 							mode === "ralph" &&
 							effectiveSessionId &&
@@ -400,6 +435,14 @@ export async function handleStateToolCall(request: {
 							}
 							Object.assign(mergedRaw, validation.state);
 							ensureRalphArtifacts = true;
+						}
+						if (mode !== SKILL_ACTIVE_STATE_MODE) {
+							const runOutcomeValidation = applyRunOutcomeContract(mergedRaw);
+							if (!runOutcomeValidation.ok || !runOutcomeValidation.state) {
+								validationError = runOutcomeValidation.error || "Invalid run outcome state";
+								return;
+							}
+							Object.assign(mergedRaw, runOutcomeValidation.state);
 						}
 						if (isTrackedWorkflowMode(mode) && mergedRaw.active === true) {
 							try {

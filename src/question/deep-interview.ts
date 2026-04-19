@@ -7,6 +7,7 @@ import {
   type OmxQuestionSuccessPayload,
 } from './client.js';
 import type { QuestionInput } from './types.js';
+import type { ExplicitTerminalLifecycle } from '../runtime/run-outcome.js';
 
 const DEEP_INTERVIEW_STATE_FILE = 'deep-interview-state.json';
 
@@ -21,9 +22,27 @@ export interface DeepInterviewQuestionEnforcementState {
   clear_reason?: 'handoff' | 'abort' | 'error';
 }
 
+type DeepInterviewQuestionLifecycleStatus =
+  | ExplicitTerminalLifecycle['status']
+  | 'question_asked';
+
+export interface DeepInterviewQuestionLifecycle {
+  status: DeepInterviewQuestionLifecycleStatus;
+  legacy_run_outcome: 'blocked_on_user';
+  obligation_id: string;
+  source: 'omx-question';
+  requested_at: string;
+  question_id?: string;
+  satisfied_at?: string;
+  cleared_at?: string;
+  clear_reason?: 'handoff' | 'abort' | 'error';
+}
+
 interface DeepInterviewStateRecord {
   updated_at?: string;
   question_enforcement?: DeepInterviewQuestionEnforcementState;
+  explicit_terminal?: ExplicitTerminalLifecycle;
+  deep_interview_question_lifecycle?: DeepInterviewQuestionLifecycle;
   [key: string]: unknown;
 }
 
@@ -66,6 +85,32 @@ export function createDeepInterviewQuestionObligation(
     status: 'pending',
     requested_at: now.toISOString(),
   };
+}
+
+function buildDeepInterviewQuestionLifecycle(
+  enforcement: DeepInterviewQuestionEnforcementState,
+): DeepInterviewQuestionLifecycle {
+  const lifecycle: DeepInterviewQuestionLifecycle = {
+    status: 'askuserQuestion',
+    legacy_run_outcome: 'blocked_on_user',
+    obligation_id: enforcement.obligation_id,
+    source: enforcement.source,
+    requested_at: enforcement.requested_at,
+  };
+
+  if (enforcement.status === 'satisfied') {
+    lifecycle.status = 'question_asked';
+    lifecycle.question_id = enforcement.question_id;
+    lifecycle.satisfied_at = enforcement.satisfied_at;
+  } else if (enforcement.status === 'cleared') {
+    lifecycle.status = 'userinterlude';
+    lifecycle.cleared_at = enforcement.cleared_at;
+    lifecycle.clear_reason = enforcement.clear_reason;
+    if (enforcement.question_id) lifecycle.question_id = enforcement.question_id;
+    if (enforcement.satisfied_at) lifecycle.satisfied_at = enforcement.satisfied_at;
+  }
+
+  return lifecycle;
 }
 
 export function isPendingDeepInterviewQuestionEnforcement(
@@ -120,10 +165,16 @@ export async function updateDeepInterviewQuestionEnforcement(
   const nextState: DeepInterviewStateRecord = {
     ...state,
     updated_at: new Date().toISOString(),
-    ...(nextEnforcement ? { question_enforcement: nextEnforcement } : {}),
+    ...(nextEnforcement
+      ? {
+        question_enforcement: nextEnforcement,
+        deep_interview_question_lifecycle: buildDeepInterviewQuestionLifecycle(nextEnforcement),
+      }
+      : {}),
   };
   if (!nextEnforcement) {
     delete nextState.question_enforcement;
+    delete nextState.deep_interview_question_lifecycle;
   }
 
   await writeDeepInterviewState(cwd, nextState, sessionId);

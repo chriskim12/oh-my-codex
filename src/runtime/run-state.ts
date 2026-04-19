@@ -4,8 +4,10 @@ import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { getStateFilePath, resolveStateScope } from '../mcp/state-paths.js';
 import {
   classifyRunOutcome,
+  explicitTerminalLifecycleFromRunOutcome,
   isTerminalRunOutcome,
   normalizeRunOutcome,
+  type ExplicitTerminalLifecycle,
   type RunOutcome,
 } from './run-outcome.js';
 
@@ -32,6 +34,7 @@ export interface RunState {
   mode: string;
   active: boolean;
   outcome: RunOutcome;
+  explicit_terminal?: ExplicitTerminalLifecycle;
   updated_at: string;
   current_phase?: string;
   task_description?: string;
@@ -88,6 +91,8 @@ export function buildRunState(
     outcome,
     updated_at: nowIso,
   };
+  const explicitTerminal = explicitTerminalLifecycleFromRunOutcome(outcome);
+  if (explicitTerminal) next.explicit_terminal = explicitTerminal;
 
   const currentPhase = optionalString(state.current_phase);
   if (currentPhase) next.current_phase = currentPhase;

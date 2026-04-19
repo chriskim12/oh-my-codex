@@ -190,6 +190,51 @@ describe('state-server directory initialization', () => {
       assert.equal(readBody.current_phase, 'deep-interview');
       assert.equal(readBody.current_focus, 'intent');
       assert.equal(readBody.threshold, 0.2);
+      assert.equal(readBody.run_outcome, 'continue');
+      assert.equal(readBody.explicit_terminal, undefined);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts canonical explicit_terminal writes and preserves legacy run_outcome compatibility', async () => {
+    process.env.OMX_STATE_SERVER_DISABLE_AUTO_START = '1';
+    const { handleStateToolCall } = await import('../state-server.js');
+
+    const wd = await mkdtemp(join(tmpdir(), 'omx-state-server-explicit-terminal-'));
+    try {
+      const writeResponse = await handleStateToolCall({
+        params: {
+          name: 'state_write',
+          arguments: {
+            workingDirectory: wd,
+            mode: 'deep-interview',
+            active: false,
+            explicit_terminal: 'askuserQuestion',
+          },
+        },
+      });
+
+      assert.equal(writeResponse.isError, undefined);
+
+      const readResponse = await handleStateToolCall({
+        params: {
+          name: 'state_read',
+          arguments: {
+            workingDirectory: wd,
+            mode: 'deep-interview',
+          },
+        },
+      });
+
+      const readBody = JSON.parse(readResponse.content[0]?.text || '{}') as Record<string, unknown>;
+      assert.equal(readBody.active, false);
+      assert.equal(readBody.run_outcome, 'blocked_on_user');
+      assert.deepEqual(readBody.explicit_terminal, {
+        status: 'askuserQuestion',
+        legacy_run_outcome: 'blocked_on_user',
+      });
+      assert.equal(typeof readBody.completed_at, 'string');
     } finally {
       await rm(wd, { recursive: true, force: true });
     }
@@ -733,11 +778,16 @@ describe('state-server directory initialization', () => {
         completed_at?: string;
         auto_completed_reason?: string;
         run_outcome?: string;
+        explicit_terminal?: { status?: string; legacy_run_outcome?: string };
       };
       assert.equal(completed.active, false);
       assert.equal(completed.current_phase, 'completed');
       assert.equal(typeof completed.completed_at, 'string');
       assert.equal(completed.run_outcome, 'finish');
+      assert.deepEqual(completed.explicit_terminal, {
+        status: 'finished',
+        legacy_run_outcome: 'finish',
+      });
       assert.match(completed.auto_completed_reason || '', /mode transiting: deep-interview -> ralplan/);
     } finally {
       await rm(wd, { recursive: true, force: true });

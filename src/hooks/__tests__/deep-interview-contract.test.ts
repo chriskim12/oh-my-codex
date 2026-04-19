@@ -40,6 +40,10 @@ const templateAgents = readFileSync(
 	join(__dirname, "../../../templates/AGENTS.md"),
 	"utf-8",
 );
+const explicitTerminalContract = readFileSync(
+	join(__dirname, "../../../docs/contracts/explicit-terminal-lifecycle.md"),
+	"utf-8",
+);
 const rootAgentsPath = join(__dirname, "../../../AGENTS.md");
 const rootAgents = existsSync(rootAgentsPath)
 	? readProjectAgents(join(__dirname, "../../.."))
@@ -170,6 +174,21 @@ describe("deep-interview Ouroboros contract", () => {
 		assert.doesNotMatch(
 			deepInterviewSkill,
 			/fall back to concise plain-text one-question turns/i,
+		);
+	});
+
+	it("documents canonical explicit terminal lifecycle vocabulary for deep-interview question persistence", () => {
+		assert.match(explicitTerminalContract, /askuserQuestion/);
+		assert.match(explicitTerminalContract, /userinterlude/);
+		assert.match(explicitTerminalContract, /cancelled remains legacy\/internal compatibility/i);
+		assert.match(explicitTerminalContract, /`cancelled` remains legacy\/internal compatibility/i);
+		assert.match(
+			explicitTerminalContract,
+			/deep_interview_question_lifecycle\.status=askuserQuestion/i,
+		);
+		assert.match(
+			explicitTerminalContract,
+			/deep_interview_question_lifecycle\.status=userinterlude/i,
 		);
 	});
 

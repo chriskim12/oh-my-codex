@@ -93,11 +93,19 @@ describe('runDeepInterviewQuestion', () => {
         question_id?: string;
         satisfied_at?: string;
       };
+      deep_interview_question_lifecycle?: {
+        status?: string;
+        legacy_run_outcome?: string;
+        question_id?: string;
+      };
     };
     assert.equal(finalState.question_enforcement?.status, 'satisfied');
     assert.equal(finalState.question_enforcement?.question_id, 'question-1');
     assert.ok(finalState.question_enforcement?.obligation_id);
     assert.ok(finalState.question_enforcement?.satisfied_at);
+    assert.equal(finalState.deep_interview_question_lifecycle?.status, 'question_asked');
+    assert.equal(finalState.deep_interview_question_lifecycle?.legacy_run_outcome, 'blocked_on_user');
+    assert.equal(finalState.deep_interview_question_lifecycle?.question_id, 'question-1');
   });
 
   it('clears the pending obligation when omx question fails after being attempted', async () => {
@@ -140,9 +148,19 @@ describe('runDeepInterviewQuestion', () => {
         clear_reason?: string;
         cleared_at?: string;
       };
+      deep_interview_question_lifecycle?: {
+        status?: string;
+        legacy_run_outcome?: string;
+        clear_reason?: string;
+        cleared_at?: string;
+      };
     };
     assert.equal(finalState.question_enforcement?.status, 'cleared');
     assert.equal(finalState.question_enforcement?.clear_reason, 'error');
     assert.ok(finalState.question_enforcement?.cleared_at);
+    assert.equal(finalState.deep_interview_question_lifecycle?.status, 'userinterlude');
+    assert.equal(finalState.deep_interview_question_lifecycle?.legacy_run_outcome, 'blocked_on_user');
+    assert.equal(finalState.deep_interview_question_lifecycle?.clear_reason, 'error');
+    assert.ok(finalState.deep_interview_question_lifecycle?.cleared_at);
   });
 });

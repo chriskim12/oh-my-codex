@@ -26,6 +26,14 @@ Examples:
 
 These files determine whether a workflow mode is active, completed, cancelled, or failed.
 
+Terminal mode state now exposes two layers:
+
+- `explicit_terminal` — canonical explicit-terminal lifecycle metadata for newer readers.
+- `run_outcome` — legacy compatibility field retained for existing hooks, watchers, and state consumers.
+
+See `docs/contracts/explicit-terminal-lifecycle.md` for the canonical vocabulary
+and compatibility mapping.
+
 ### 2. `skill-active-state.json` — compatibility / visibility layer
 
 `skill-active-state.json` is still used as a compatibility surface for hooks/HUD/native messaging, but transition reconciliation should be driven from the shared transition/reconciliation helpers rather than re-deriving semantics ad hoc.
