@@ -29,4 +29,12 @@ describe('prompt guidance contract', () => {
       }
     }
   });
+
+  it('tracked AGENTS and core prompt surfaces define explicit AUTO-CONTINUE vs ASK steering', () => {
+    for (const surface of [...listTrackedAgentSurfaces(), ...CORE_ROLE_CONTRACTS.map((contract) => contract.path)]) {
+      const content = loadSurface(surface);
+      assert.match(content, /AUTO-CONTINUE/i, `${surface} should define AUTO-CONTINUE steering`);
+      assert.match(content, /permission-handoff phrasing/i, `${surface} should forbid permission-handoff phrasing on safe branches`);
+    }
+  });
 });

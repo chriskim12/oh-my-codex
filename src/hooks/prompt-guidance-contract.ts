@@ -10,7 +10,10 @@ function rx(pattern: string): RegExp {
 
 const ROOT_TEMPLATE_PATTERNS = [
   rx('quality-first.*intent-deepening responses'),
+  rx('Classify the next step before replying'),
+  rx('AUTO-CONTINUE'),
   rx('clear, low-risk, reversible next steps'),
+  rx('permission-handoff phrasing'),
   rx('do not ask or instruct humans.*ordinary non-destructive.*reversible actions'),
   rx('OMX runtime manipulation.*agent responsibilities'),
   rx('Keep going unless blocked'),
@@ -40,26 +43,35 @@ const ROOT_TEMPLATE_PATTERNS = [
 const CORE_ROLE_PATTERNS = {
   executor: [
     rx('quality-first.*intent-deepening outputs'),
+    rx('Classify the next step first'),
+    rx('AUTO-CONTINUE'),
     rx('reflexive web/tool escalation'),
     rx('local overrides?.*non-conflicting constraints'),
     rx('task is grounded and verified'),
     rx('Keep going unless blocked'),
+    rx('permission-handoff phrasing'),
     rx('Ask only when progress is impossible|Ask only when blocked'),
   ],
   planner: [
     rx('quality-first.*intent-deepening plan summaries'),
+    rx('Before asking, classify the next step'),
+    rx('AUTO-CONTINUE'),
     rx('reflexive web/tool escalation'),
     rx('local overrides?.*non-conflicting constraints'),
     rx('plan is grounded in evidence'),
     rx('Keep advancing the current planning branch unless blocked'),
+    rx('Do not use permission-handoff phrasing'),
     rx('Ask only when a real planning blocker|Ask only when blocked'),
   ],
   verifier: [
     rx('quality-first, evidence-dense summaries'),
+    rx('Classify the next step before replying'),
+    rx('AUTO-CONTINUE'),
     rx('proof that matters|tool churn'),
     rx('verdict is grounded'),
     rx('non-conflicting acceptance criteria'),
     rx('Keep gathering evidence until the verdict is grounded or blocked'),
+    rx('do not use permission-handoff phrasing'),
     rx('Ask only when the acceptance target is materially unclear|Ask only when blocked'),
   ],
 };
