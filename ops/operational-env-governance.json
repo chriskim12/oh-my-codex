@@ -1,0 +1,276 @@
+{
+  "schemaVersion": 1,
+  "scope": "OMX operational env governance for CH-291 / Chris-Hermes local operation. Value-free: key names and source references only.",
+  "bwsProject": {
+    "status": "not-imported",
+    "project": "Chris/Hermes",
+    "note": "This ledger records governance scope only. It does not assert raw values exist and must not be used to read, print, infer, or import secret values."
+  },
+  "entries": [
+    {
+      "key": "CODEX_HOME",
+      "classification": "public/internal config",
+      "operationalScope": "Codex/OMX home directory selection for config and auth-store discovery; value is a path, not a credential.",
+      "owner": "OMX operator / Codex runtime",
+      "bwsStatus": "not-applicable",
+      "references": [
+        "src/utils/paths.ts",
+        "src/agents/native-config.ts",
+        "README.md"
+      ]
+    },
+    {
+      "key": "HERMES_HOME",
+      "classification": "public/internal config",
+      "operationalScope": "Hermes profile home observed by OMX adapter for runtime evidence files.",
+      "owner": "Chris/Hermes runtime operator",
+      "bwsStatus": "not-applicable",
+      "references": [
+        "src/adapt/hermes.ts",
+        "docs/adapt.md"
+      ]
+    },
+    {
+      "key": "OMX_ADAPT_HERMES_ROOT",
+      "classification": "public/internal config",
+      "operationalScope": "Override path for external Hermes source/runtime root inspected by OMX adapter.",
+      "owner": "Chris/Hermes runtime operator",
+      "bwsStatus": "not-applicable",
+      "references": [
+        "src/adapt/hermes.ts",
+        "docs/adapt.md"
+      ]
+    },
+    {
+      "key": "OMX_ADAPT_HERMES_BOOTSTRAP",
+      "classification": "public/internal config",
+      "operationalScope": "Hermes bootstrap-mode marker used only to alter adapter guidance text.",
+      "owner": "Chris/Hermes runtime operator",
+      "bwsStatus": "not-applicable",
+      "references": [
+        "src/adapt/hermes.ts"
+      ]
+    },
+    {
+      "key": "OMX_DISCORD_NOTIFIER_BOT_TOKEN",
+      "classification": "secret",
+      "operationalScope": "Optional OMX Discord bot notification credential.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "governance-needed; value not inspected",
+      "references": [
+        "src/notifications/config.ts",
+        "src/scripts/test-reply-listener-live.ts"
+      ]
+    },
+    {
+      "key": "OMX_DISCORD_NOTIFIER_CHANNEL",
+      "classification": "public/internal config",
+      "operationalScope": "Discord channel identifier paired with the optional bot notification credential.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable unless local policy treats channel IDs as sensitive metadata",
+      "references": [
+        "src/notifications/config.ts",
+        "src/scripts/test-reply-listener-live.ts"
+      ]
+    },
+    {
+      "key": "OMX_DISCORD_WEBHOOK_URL",
+      "classification": "secret",
+      "operationalScope": "Optional OMX Discord webhook notification credential.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "governance-needed; value not inspected",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    },
+    {
+      "key": "OMX_DISCORD_MENTION",
+      "classification": "public/internal config",
+      "operationalScope": "Optional Discord mention metadata for notification messages.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable unless local policy treats mention IDs as sensitive metadata",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    },
+    {
+      "key": "OMX_TELEGRAM_BOT_TOKEN",
+      "classification": "secret",
+      "operationalScope": "Optional OMX Telegram bot notification credential.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "governance-needed; value not inspected",
+      "references": [
+        "src/notifications/config.ts",
+        "src/scripts/test-reply-listener-live.ts"
+      ]
+    },
+    {
+      "key": "OMX_TELEGRAM_NOTIFIER_BOT_TOKEN",
+      "classification": "secret",
+      "operationalScope": "Legacy/alternate OMX Telegram bot notification credential name.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "governance-needed; value not inspected",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    },
+    {
+      "key": "OMX_TELEGRAM_CHAT_ID",
+      "classification": "public/internal config",
+      "operationalScope": "Telegram chat identifier paired with the optional bot notification credential.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable unless local policy treats chat IDs as sensitive metadata",
+      "references": [
+        "src/notifications/config.ts",
+        "src/scripts/test-reply-listener-live.ts"
+      ]
+    },
+    {
+      "key": "OMX_TELEGRAM_NOTIFIER_CHAT_ID",
+      "classification": "public/internal config",
+      "operationalScope": "Legacy/alternate Telegram chat identifier for notifications.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable unless local policy treats chat IDs as sensitive metadata",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    },
+    {
+      "key": "OMX_TELEGRAM_NOTIFIER_UID",
+      "classification": "public/internal config",
+      "operationalScope": "Legacy/alternate Telegram recipient identifier for notifications.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable unless local policy treats recipient IDs as sensitive metadata",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    },
+    {
+      "key": "OMX_SLACK_WEBHOOK_URL",
+      "classification": "secret",
+      "operationalScope": "Optional OMX Slack webhook notification credential.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "governance-needed; value not inspected",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    },
+    {
+      "key": "OMX_SLACK_MENTION",
+      "classification": "public/internal config",
+      "operationalScope": "Optional Slack mention metadata for notification messages.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable unless local policy treats mention IDs as sensitive metadata",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    },
+    {
+      "key": "OMX_NOTIFY_PROFILE",
+      "classification": "public/internal config",
+      "operationalScope": "Notification profile selector for operator-local notification routing.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    },
+    {
+      "key": "OMX_NOTIFY_VERBOSITY",
+      "classification": "public/internal config",
+      "operationalScope": "Notification verbosity selector.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    },
+    {
+      "key": "OMX_HOOK_CONFIG",
+      "classification": "public/internal config",
+      "operationalScope": "Optional path to notification hook template config; file contents are outside this env ledger.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable",
+      "references": [
+        "src/notifications/hook-config.ts"
+      ]
+    },
+    {
+      "key": "OMX_REPLY_ENABLED",
+      "classification": "public/internal config",
+      "operationalScope": "Operator-controlled enablement flag for reply listener behavior.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    },
+    {
+      "key": "OMX_REPLY_DISCORD_USER_IDS",
+      "classification": "public/internal config",
+      "operationalScope": "Authorized Discord user ID allowlist for reply listener behavior.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable unless local policy treats user IDs as sensitive metadata",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    },
+    {
+      "key": "OMX_REPLY_POLL_INTERVAL_MS",
+      "classification": "public/internal config",
+      "operationalScope": "Reply listener polling interval tuning.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    },
+    {
+      "key": "OMX_REPLY_RATE_LIMIT",
+      "classification": "public/internal config",
+      "operationalScope": "Reply listener rate-limit tuning.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    },
+    {
+      "key": "OMX_REPLY_INCLUDE_PREFIX",
+      "classification": "public/internal config",
+      "operationalScope": "Reply listener prefix-formatting toggle.",
+      "owner": "OMX notification operator",
+      "bwsStatus": "not-applicable",
+      "references": [
+        "src/notifications/config.ts"
+      ]
+    }
+  ],
+  "excludedHighSignalRefs": [
+    {
+      "key": "GITHUB_TOKEN",
+      "classification": "CI-only",
+      "exclusionReason": "GitHub Actions release-note API credential; governed by CI provider, not Chris/Hermes operation.",
+      "references": [
+        "src/scripts/generate-release-body.ts",
+        ".github/workflows/release.yml"
+      ]
+    },
+    {
+      "key": "NODE_AUTH_TOKEN",
+      "classification": "CI-only",
+      "exclusionReason": "npm publish token injected by release workflow; governed by CI provider, not Chris/Hermes operation.",
+      "references": [
+        ".github/workflows/release.yml"
+      ]
+    },
+    {
+      "key": "HOOKS_TOKEN",
+      "classification": "inactive example",
+      "exclusionReason": "OpenClaw documentation placeholder for app-specific hook authorization; excluded from Chris/Hermes operational ledger to avoid duplicating app-owned secrets.",
+      "references": [
+        "docs/openclaw-integration.md"
+      ]
+    }
+  ]
+}

@@ -54,7 +54,8 @@
     "sync:plugin:check": "node dist/scripts/sync-plugin-mirror.js --check",
     "verify:plugin-bundle": "node dist/scripts/sync-plugin-mirror.js --check",
     "verify:native-agents": "node dist/scripts/verify-native-agents.js",
-    "prompt:inventory": "node dist/scripts/prompt-inventory.js"
+    "prompt:inventory": "node dist/scripts/prompt-inventory.js",
+    "check:env-governance": "node ops/check-env-governance.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -68,6 +69,7 @@
     "prompts/",
     "templates/",
     "src/scripts/",
+    "ops/",
     "plugins/",
     ".agents/plugins/marketplace.json"
   ],
