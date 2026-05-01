@@ -128,11 +128,27 @@ If you want a one-off launch with no OMX tmux/HUD management, use `--direct`:
 omx --direct --yolo
 ```
 
+`--direct` and `OMX_LAUNCH_POLICY=direct` only opt out of OMX launch
+management. They do not edit or bypass Codex native hook registrations already
+installed in `${CODEX_HOME:-~/.codex}/hooks.json`, so native hook side effects
+such as `.omx/state` updates can still occur in that Codex process tree.
+
 For a persistent shell/profile preference, set an environment policy:
 
 ```bash
 OMX_LAUNCH_POLICY=direct omx --yolo
 ```
+
+To leave installed native hook registrations in place but make the OMX native
+hook command return immediately for one process tree, set
+`OMX_NATIVE_HOOKS=0` before launching Codex or OMX. The disabled values are
+`0`, `false`, `off`, and `no`:
+
+```bash
+OMX_NATIVE_HOOKS=0 omx --direct --yolo
+```
+
+Unset `OMX_NATIVE_HOOKS` to restore the default native hook behavior.
 
 Return to the auto/default behavior with:
 

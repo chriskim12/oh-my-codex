@@ -132,9 +132,15 @@ const SHORT_FOLLOWUP_PRIORITY_PATTERNS = [
   /\b(?:follow up|latest request|this turn|current turn|newest request)\b/i,
 ] as const;
 const MAX_SESSION_META_LINE_BYTES = 256 * 1024;
+const NATIVE_HOOKS_DISABLED_ENV_VALUES = new Set(["0", "false", "off", "no"]);
 
 function safeString(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function areCodexNativeHooksDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env.OMX_NATIVE_HOOKS;
+  return typeof raw === "string" && NATIVE_HOOKS_DISABLED_ENV_VALUES.has(raw.trim().toLowerCase());
 }
 
 function safeObject(value: unknown): Record<string, unknown> {
@@ -2085,11 +2091,20 @@ export async function dispatchCodexNativeHook(
   options: NativeHookDispatchOptions = {},
 ): Promise<NativeHookDispatchResult> {
   const hookEventName = readHookEventName(payload);
+  const omxEventName = mapCodexHookEventToOmxEvent(hookEventName);
+  if (areCodexNativeHooksDisabled()) {
+    return {
+      hookEventName,
+      omxEventName,
+      skillState: null,
+      outputJson: null,
+    };
+  }
+
   const cwd = options.cwd ?? (safeString(payload.cwd).trim() || process.cwd());
   const stateDir = join(cwd, ".omx", "state");
   await mkdir(stateDir, { recursive: true });
 
-  const omxEventName = mapCodexHookEventToOmxEvent(hookEventName);
   let skillState: SkillActiveState | null = null;
   let triageAdditionalContext: string | null = null;
 
@@ -2371,6 +2386,10 @@ function buildStopDispatchFailureOutput(error: unknown): Record<string, unknown>
 }
 
 export async function runCodexNativeHookCli(): Promise<void> {
+  if (areCodexNativeHooksDisabled()) {
+    return;
+  }
+
   const { payload, parseError } = await readStdinJson();
   if (parseError) {
     writeNativeHookJsonStdout({

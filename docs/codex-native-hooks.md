@@ -24,6 +24,18 @@ For project scope, `.gitignore` keeps generated `.codex/hooks.json` out of sourc
 
 OMX only owns the wrapper entries that invoke `dist/scripts/codex-native-hook.js`. User-managed hook entries in the same `.codex/hooks.json` file are preserved across `omx setup` refreshes and `omx uninstall`.
 
+## Per-process opt-out
+
+`omx --direct` and `OMX_LAUNCH_POLICY=direct` bypass OMX tmux/HUD launch
+management only. They do not remove installed Codex native hook registrations,
+so `.codex/hooks.json` can still run `dist/scripts/codex-native-hook.js`.
+
+Set `OMX_NATIVE_HOOKS=0` for a Codex/OMX process tree when you want to keep the
+installed hook entries but make the OMX native hook command return immediately
+without writing `.omx/state` or dispatching plugin hook events. The disabled
+values are `0`, `false`, `off`, and `no` (case-insensitive after trimming).
+Unset `OMX_NATIVE_HOOKS` to restore the default native hook behavior.
+
 ## Mapping matrix
 
 | OMC / OMX surface | Native Codex source | OMX runtime target | Status | Notes |

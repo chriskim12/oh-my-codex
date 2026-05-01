@@ -265,6 +265,62 @@ describe("codex native hook dispatch", () => {
     );
   });
 
+  it("returns immediately without state side effects when OMX_NATIVE_HOOKS disables native hooks", async () => {
+    for (const disabledValue of ["0", "false", "off", "no"]) {
+      const cwd = await mkdtemp(join(tmpdir(), `omx-native-hooks-disabled-${disabledValue}-`));
+      try {
+        const stdout = runNativeHookCli({
+          hook_event_name: "UserPromptSubmit",
+          cwd,
+          session_id: `sess-native-hooks-disabled-${disabledValue}`,
+          thread_id: `thread-native-hooks-disabled-${disabledValue}`,
+          turn_id: `turn-native-hooks-disabled-${disabledValue}`,
+          prompt: "$ralplan fix native hook state drift",
+        }, {
+          cwd,
+          env: {
+            ...process.env,
+            OMX_NATIVE_HOOKS: disabledValue,
+          },
+        });
+
+        assert.equal(stdout, "");
+        assert.equal(existsSync(join(cwd, ".omx", "state")), false);
+      } finally {
+        await rm(cwd, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("keeps native hook behavior enabled by default", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "omx-native-hooks-default-enabled-"));
+    try {
+      const env = { ...process.env };
+      delete env.OMX_NATIVE_HOOKS;
+
+      const stdout = runNativeHookCli({
+        hook_event_name: "UserPromptSubmit",
+        cwd,
+        session_id: "sess-native-hooks-default-enabled",
+        thread_id: "thread-native-hooks-default-enabled",
+        turn_id: "turn-native-hooks-default-enabled",
+        prompt: "$ralplan fix native hook state drift",
+      }, { cwd, env });
+      const output = parseSingleJsonStdout(stdout);
+
+      assert.equal(
+        existsSync(join(cwd, ".omx", "state", "sessions", "sess-native-hooks-default-enabled", "skill-active-state.json")),
+        true,
+      );
+      assert.match(
+        String((output.hookSpecificOutput as { additionalContext?: unknown } | undefined)?.additionalContext ?? ""),
+        /\$ralplan|workflow keyword/i,
+      );
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("emits parseable no-op JSON stdout for inactive Stop CLI runs", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "omx-native-hook-cli-stop-noop-json-"));
     try {
