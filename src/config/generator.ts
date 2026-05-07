@@ -7,7 +7,7 @@
  * [table] header.  This generator therefore splits its output into:
  *   1. Top-level keys  (notify, model_reasoning_effort, developer_instructions)
  *   2. [features] flags
- *   3. [table] sections (env, mcp_servers, tui)
+ *   3. [table] sections (shell_environment_policy.set, mcp_servers, tui)
  */
 
 import { readFile, writeFile } from "fs/promises";
@@ -45,9 +45,27 @@ const OMX_TOP_LEVEL_KEYS = [
   "developer_instructions",
 ] as const;
 
-const DEFAULT_SETUP_MODEL = DEFAULT_FRONTIER_MODEL;
-const DEFAULT_SETUP_MODEL_CONTEXT_WINDOW = 250000;
-const DEFAULT_SETUP_MODEL_AUTO_COMPACT_TOKEN_LIMIT = 200000;
+export interface ModelContextRecommendation {
+  model: string;
+  modelContextWindow: number;
+  modelAutoCompactTokenLimit: number;
+}
+
+export const DEFAULT_SETUP_MODEL = DEFAULT_FRONTIER_MODEL;
+export const DEFAULT_SETUP_MODEL_CONTEXT_WINDOW = 250000;
+export const DEFAULT_SETUP_MODEL_AUTO_COMPACT_TOKEN_LIMIT = 200000;
+
+export function getModelContextRecommendation(
+  model: string,
+): ModelContextRecommendation | null {
+  if (model !== DEFAULT_SETUP_MODEL) return null;
+
+  return {
+    model,
+    modelContextWindow: DEFAULT_SETUP_MODEL_CONTEXT_WINDOW,
+    modelAutoCompactTokenLimit: DEFAULT_SETUP_MODEL_AUTO_COMPACT_TOKEN_LIMIT,
+  };
+}
 const OMX_SEEDED_BEHAVIORAL_DEFAULTS_START_MARKER =
   "# oh-my-codex seeded behavioral defaults (uninstall removes unchanged defaults)";
 const OMX_SEEDED_BEHAVIORAL_DEFAULTS_END_MARKER =
@@ -55,6 +73,8 @@ const OMX_SEEDED_BEHAVIORAL_DEFAULTS_END_MARKER =
 
 export const OMX_DEVELOPER_INSTRUCTIONS =
   "You have oh-my-codex installed. AGENTS.md is the orchestration brain and main control surface. Follow AGENTS.md for skill/keyword routing, $name workflow invocation, and role-specialized subagents. Use outcome-first, concise progress updates: state the target result, constraints, validation evidence, and stop condition before adding process detail. Native subagents live in .codex/agents and may handle independent parallel subtasks within one Codex session or team pane. Skills load from .codex/skills, not native-agent TOMLs. Treat installed prompts as narrower execution surfaces under AGENTS.md authority.";
+export const OMX_PLUGIN_DEVELOPER_INSTRUCTIONS =
+  "You have oh-my-codex installed through Codex plugin mode. AGENTS.md is the orchestration brain and main control surface. Follow AGENTS.md for skill/keyword routing and $name workflow invocation. Registered Codex plugin marketplace surfaces supply OMX workflows, prompts, and native-agent roles when the plugin is installed. User-installed skills may still live under ~/.codex/skills. Setup-owned prompt files and native-agent TOML defaults are intentionally omitted unless explicitly installed. Use outcome-first, concise progress updates: state the target result, constraints, validation evidence, and stop condition before adding process detail.";
 const SHARED_MCP_REGISTRY_MARKER = "oh-my-codex (OMX) Shared MCP Registry Sync";
 const SHARED_MCP_REGISTRY_END_MARKER =
   "# End oh-my-codex shared MCP registry sync";
@@ -416,6 +436,7 @@ function upsertFeatureFlags(config: string): string {
       "multi_agent = true",
       "child_agents_md = true",
       "codex_hooks = true",
+      "goals = true",
       "",
     ].join("\n");
     if (base.length === 0) {
@@ -432,9 +453,10 @@ function upsertFeatureFlags(config: string): string {
     }
   }
 
-  // Remove deprecated 'collab' key (superseded by multi_agent)
+  // Remove deprecated 'collab' key (superseded by multi_agent) and
+  // the misspelled singular 'goal' flag written by unreleased PR builds.
   for (let i = sectionEnd - 1; i > featuresStart; i--) {
-    if (/^\s*collab\s*=/.test(lines[i])) {
+    if (/^\s*(?:collab|goal)\s*=/.test(lines[i])) {
       lines.splice(i, 1);
       sectionEnd -= 1;
     }
@@ -443,6 +465,7 @@ function upsertFeatureFlags(config: string): string {
   let multiAgentIdx = -1;
   let childAgentsIdx = -1;
   let codexHooksIdx = -1;
+  let goalsIdx = -1;
   for (let i = featuresStart + 1; i < sectionEnd; i++) {
     if (/^\s*multi_agent\s*=/.test(lines[i])) {
       multiAgentIdx = i;
@@ -450,6 +473,8 @@ function upsertFeatureFlags(config: string): string {
       childAgentsIdx = i;
     } else if (/^\s*codex_hooks\s*=/.test(lines[i])) {
       codexHooksIdx = i;
+    } else if (/^\s*goals\s*=/.test(lines[i])) {
+      goalsIdx = i;
     }
   }
 
@@ -471,12 +496,19 @@ function upsertFeatureFlags(config: string): string {
     lines[codexHooksIdx] = "codex_hooks = true";
   } else {
     lines.splice(sectionEnd, 0, "codex_hooks = true");
+    sectionEnd += 1;
+  }
+
+  if (goalsIdx >= 0) {
+    lines[goalsIdx] = "goals = true";
+  } else {
+    lines.splice(sectionEnd, 0, "goals = true");
   }
 
   return lines.join("\n");
 }
 
-export function upsertCodexHooksFeatureFlag(config: string): string {
+export function upsertPluginModeRuntimeFeatureFlags(config: string): string {
   const lines = config.split(/\r?\n/);
   const featuresStart = lines.findIndex((line) =>
     /^\s*\[features\]\s*$/.test(line),
@@ -484,7 +516,12 @@ export function upsertCodexHooksFeatureFlag(config: string): string {
 
   if (featuresStart < 0) {
     const base = config.trimEnd();
-    const featureBlock = ["[features]", "codex_hooks = true", ""].join("\n");
+    const featureBlock = [
+      "[features]",
+      "codex_hooks = true",
+      "goals = true",
+      "",
+    ].join("\n");
     if (base.length === 0) {
       return featureBlock;
     }
@@ -499,11 +536,22 @@ export function upsertCodexHooksFeatureFlag(config: string): string {
     }
   }
 
+  // Remove the misspelled singular flag from unreleased PR builds before
+  // upserting the supported plural Codex feature flag.
+  for (let i = sectionEnd - 1; i > featuresStart; i--) {
+    if (/^\s*goal\s*=/.test(lines[i])) {
+      lines.splice(i, 1);
+      sectionEnd -= 1;
+    }
+  }
+
   let codexHooksIdx = -1;
+  let goalsIdx = -1;
   for (let i = featuresStart + 1; i < sectionEnd; i++) {
     if (/^\s*codex_hooks\s*=/.test(lines[i])) {
       codexHooksIdx = i;
-      break;
+    } else if (/^\s*goals\s*=/.test(lines[i])) {
+      goalsIdx = i;
     }
   }
 
@@ -511,48 +559,192 @@ export function upsertCodexHooksFeatureFlag(config: string): string {
     lines[codexHooksIdx] = "codex_hooks = true";
   } else {
     lines.splice(sectionEnd, 0, "codex_hooks = true");
+    sectionEnd++;
+  }
+
+  if (goalsIdx >= 0) {
+    lines[goalsIdx] = "goals = true";
+  } else {
+    lines.splice(sectionEnd, 0, "goals = true");
   }
 
   return lines.join("\n");
 }
+interface TomlTableRange {
+  start: number;
+  end: number;
+}
+
+function findTomlTableRange(
+  lines: string[],
+  headerPattern: RegExp,
+): TomlTableRange | undefined {
+  const start = lines.findIndex((line) => headerPattern.test(line));
+  if (start < 0) return undefined;
+
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^\s*\[\[?[^\]]+\]?\]\s*$/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+
+  return { start, end };
+}
+
+function tomlAssignmentKey(line: string): string | undefined {
+  return line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/)?.[1];
+}
+
+interface TomlTableEntryRange {
+  key?: string;
+  start: number;
+  end: number;
+}
+
+function findTomlTableEntryRanges(
+  lines: string[],
+  start: number,
+  end: number,
+): TomlTableEntryRange[] {
+  const ranges: TomlTableEntryRange[] = [];
+  let index = start;
+
+  while (index < end) {
+    const key = tomlAssignmentKey(lines[index]);
+    if (key === undefined) {
+      ranges.push({ start: index, end: index + 1 });
+      index += 1;
+      continue;
+    }
+
+    let entryEnd = index + 1;
+    while (
+      !parseStandaloneToml(lines.slice(index, entryEnd).join("\n")) &&
+      entryEnd < end
+    ) {
+      entryEnd += 1;
+    }
+
+    ranges.push({ key, start: index, end: entryEnd });
+    index = entryEnd;
+  }
+
+  return ranges;
+}
+
+function collectTomlTableKeyEntries(
+  lines: string[],
+  range: TomlTableRange,
+): { key: string; lines: string[] }[] {
+  return findTomlTableEntryRanges(lines, range.start + 1, range.end)
+    .filter(
+      (
+        entry,
+      ): entry is TomlTableEntryRange & { key: string } =>
+        entry.key !== undefined,
+    )
+    .map((entry) => ({
+      key: entry.key,
+      lines: lines.slice(entry.start, entry.end),
+    }));
+}
+
+function stripTomlTableKey(
+  lines: string[],
+  headerPattern: RegExp,
+  keyName: string,
+): string[] {
+  const range = findTomlTableRange(lines, headerPattern);
+  if (!range) return lines;
+
+  const filtered = [...lines];
+  const entries = findTomlTableEntryRanges(
+    filtered,
+    range.start + 1,
+    range.end,
+  );
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (entry.key === keyName) {
+      filtered.splice(entry.start, entry.end - entry.start);
+    }
+  }
+
+  const newRange = findTomlTableRange(filtered, headerPattern);
+  if (!newRange) return filtered;
+
+  const sectionContent = filtered.slice(newRange.start + 1, newRange.end);
+  if (sectionContent.every((line) => line.trim() === "")) {
+    filtered.splice(newRange.start, newRange.end - newRange.start);
+  }
+
+  return filtered;
+}
 
 function upsertEnvSettings(config: string): string {
   const lines = config.split(/\r?\n/);
-  const envStart = lines.findIndex((line) => /^\s*\[env\]\s*$/.test(line));
+  const legacyEnvRange = findTomlTableRange(lines, /^\s*\[env\]\s*$/);
+  const legacyEnvEntries =
+    legacyEnvRange === undefined
+      ? []
+      : collectTomlTableKeyEntries(lines, legacyEnvRange);
 
-  if (envStart < 0) {
-    const base = config.trimEnd();
+  if (legacyEnvRange !== undefined) {
+    lines.splice(
+      legacyEnvRange.start,
+      legacyEnvRange.end - legacyEnvRange.start,
+    );
+  }
+
+  const shellEnvSetRange = findTomlTableRange(
+    lines,
+    /^\s*\[shell_environment_policy\.set\]\s*$/,
+  );
+  if (shellEnvSetRange === undefined) {
+    const base = lines.join("\n").trimEnd();
+    const envLines = legacyEnvEntries.flatMap((entry) => entry.lines);
+    if (
+      legacyEnvEntries.every(
+        (entry) => entry.key !== OMX_EXPLORE_CMD_ENV,
+      )
+    ) {
+      envLines.push(
+        `${OMX_EXPLORE_CMD_ENV} = "${OMX_EXPLORE_ROUTING_DEFAULT}"`,
+      );
+    }
     const envBlock = [
-      "[env]",
-      `${OMX_EXPLORE_CMD_ENV} = "${OMX_EXPLORE_ROUTING_DEFAULT}"`,
+      "[shell_environment_policy.set]",
+      ...envLines,
       "",
     ].join("\n");
     if (base.length === 0) return envBlock;
     return `${base}\n\n${envBlock}`;
   }
 
-  let sectionEnd = lines.length;
-  for (let i = envStart + 1; i < lines.length; i++) {
-    if (/^\s*\[\[?[^\]]+\]?\]\s*$/.test(lines[i])) {
-      sectionEnd = i;
-      break;
+  const shellEnvKeys = new Set<string>();
+  for (let i = shellEnvSetRange.start + 1; i < shellEnvSetRange.end; i++) {
+    const key = tomlAssignmentKey(lines[i]);
+    if (key !== undefined) shellEnvKeys.add(key);
+  }
+
+  const linesToInsert: string[] = [];
+  for (const entry of legacyEnvEntries) {
+    if (!shellEnvKeys.has(entry.key)) {
+      linesToInsert.push(...entry.lines);
+      shellEnvKeys.add(entry.key);
     }
   }
 
-  let exploreRoutingIdx = -1;
-  for (let i = envStart + 1; i < sectionEnd; i++) {
-    if (new RegExp(`^\\s*${OMX_EXPLORE_CMD_ENV}\\s*=`).test(lines[i])) {
-      exploreRoutingIdx = i;
-      break;
-    }
-  }
-
-  if (exploreRoutingIdx < 0) {
-    lines.splice(
-      sectionEnd,
-      0,
+  if (!shellEnvKeys.has(OMX_EXPLORE_CMD_ENV)) {
+    linesToInsert.push(
       `${OMX_EXPLORE_CMD_ENV} = "${OMX_EXPLORE_ROUTING_DEFAULT}"`,
     );
+  }
+
+  if (linesToInsert.length > 0) {
+    lines.splice(shellEnvSetRange.end, 0, ...linesToInsert);
   }
 
   return lines.join("\n");
@@ -625,7 +817,14 @@ export function stripOmxFeatureFlags(config: string): string {
     }
   }
 
-  const omxFlags = ["multi_agent", "child_agents_md", "codex_hooks", "collab"];
+  const omxFlags = [
+    "multi_agent",
+    "child_agents_md",
+    "codex_hooks",
+    "goals",
+    "goal",
+    "collab",
+  ];
   const filtered: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     if (i > featuresStart && i < sectionEnd) {
@@ -659,48 +858,14 @@ export function stripOmxFeatureFlags(config: string): string {
 }
 
 export function stripOmxEnvSettings(config: string): string {
-  const lines = config.split(/\r?\n/);
-  const envStart = lines.findIndex((line) => /^\s*\[env\]\s*$/.test(line));
-
-  if (envStart < 0) return config;
-
-  let sectionEnd = lines.length;
-  for (let i = envStart + 1; i < lines.length; i++) {
-    if (/^\s*\[\[?[^\]]+\]?\]\s*$/.test(lines[i])) {
-      sectionEnd = i;
-      break;
-    }
-  }
-
-  const filtered: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (i > envStart && i < sectionEnd) {
-      const isOmxEnvKey = new RegExp(`^\\s*${OMX_EXPLORE_CMD_ENV}\\s*=`).test(
-        lines[i],
-      );
-      if (isOmxEnvKey) continue;
-    }
-    filtered.push(lines[i]);
-  }
-
-  const newEnvStart = filtered.findIndex((line) =>
-    /^\s*\[env\]\s*$/.test(line),
+  let lines = config.split(/\r?\n/);
+  lines = stripTomlTableKey(lines, /^\s*\[env\]\s*$/, OMX_EXPLORE_CMD_ENV);
+  lines = stripTomlTableKey(
+    lines,
+    /^\s*\[shell_environment_policy\.set\]\s*$/,
+    OMX_EXPLORE_CMD_ENV,
   );
-  if (newEnvStart >= 0) {
-    let newSectionEnd = filtered.length;
-    for (let i = newEnvStart + 1; i < filtered.length; i++) {
-      if (/^\s*\[\[?[^\]]+\]?\]\s*$/.test(filtered[i])) {
-        newSectionEnd = i;
-        break;
-      }
-    }
-    const envContent = filtered.slice(newEnvStart + 1, newSectionEnd);
-    if (envContent.every((line) => line.trim() === "")) {
-      filtered.splice(newEnvStart, newSectionEnd - newEnvStart);
-    }
-  }
-
-  return filtered.join("\n");
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -1237,7 +1402,7 @@ function getOmxTablesBlock(
     lines.push("");
     lines.push(server.title);
     lines.push(`[mcp_servers.${server.name}]`);
-    lines.push('command = "node"');
+    lines.push(`command = "${escapeTomlString(server.command)}"`);
     lines.push(
       `args = [${server.args
         .map((arg) => `"${escapeTomlString(arg)}"`)
@@ -1277,8 +1442,8 @@ function getOmxTablesBlock(
  *
  * Layout:
  *   1. OMX top-level keys (notify, model_reasoning_effort, developer_instructions)
- *   2. [features] with multi_agent + child_agents_md
- *   3. [env] with defaulted explore-routing opt-in
+ *   2. [features] with multi_agent + child_agents_md + codex_hooks + goals
+ *   3. [shell_environment_policy.set] with defaulted explore-routing opt-in
  *   4. … user sections …
  *   5. OMX [table] sections (mcp_servers, tui)
  */

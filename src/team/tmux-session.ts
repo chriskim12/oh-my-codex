@@ -33,6 +33,7 @@ import { resolveOmxCliEntryPath } from '../utils/paths.js';
 
 const execFileAsync = promisify(execFile);
 import { HUD_RESIZE_RECONCILE_DELAY_SECONDS, HUD_TMUX_TEAM_HEIGHT_LINES } from '../hud/constants.js';
+import { OMX_TMUX_HUD_OWNER_ENV } from '../hud/reconcile.js';
 
 const OMX_INSTANCE_OPTION = '@omx_instance_id';
 const OMX_PANE_INSTANCE_OPTION = '@omx_pane_instance_id';
@@ -949,10 +950,19 @@ export function buildWorkerProcessLaunchSpec(
         modelProviderOverride,
       )
     : {};
+  const internalWorkerIdentity = `${teamName}/worker-${workerIndex}`;
+  const displayTeamName = typeof extraEnv.OMX_TEAM_DISPLAY_NAME === 'string'
+    ? extraEnv.OMX_TEAM_DISPLAY_NAME.trim()
+    : '';
+  const publicWorkerIdentity = displayTeamName
+    ? `${displayTeamName}/worker-${workerIndex}`
+    : internalWorkerIdentity;
   const workerEnv: Record<string, string> = {
-    OMX_TEAM_WORKER: `${teamName}/worker-${workerIndex}`,
+    OMX_TEAM_WORKER: publicWorkerIdentity,
+    OMX_TEAM_INTERNAL_WORKER: internalWorkerIdentity,
     [OMX_LEADER_NODE_PATH_ENV]: resolveLeaderNodePath(),
     [OMX_LEADER_CLI_PATH_ENV]: resolvedLauncherPath,
+    [OMX_TMUX_HUD_OWNER_ENV]: '1',
     ...(workerCli === 'codex' && workerCodexHomeOverride
       ? { CODEX_HOME: workerCodexHomeOverride }
       : {}),
@@ -1164,7 +1174,7 @@ export function createTeamSession(
     let resizeHookTarget: string | null = null;
     const omxEntry = resolveOmxCliEntryPath();
     if (omxEntry && omxEntry.trim() !== '') {
-      const hudCmd = `node ${shellQuoteSingle(translatePathForMsys(omxEntry))} hud --watch`;
+      const hudCmd = `env ${OMX_TMUX_HUD_OWNER_ENV}=1 node ${shellQuoteSingle(translatePathForMsys(omxEntry))} hud --watch`;
       const hudCwd = translatePathForMsys(cwd);
       const hudResult = runTmux([
         'split-window', '-v', '-f', '-l', String(HUD_TMUX_TEAM_HEIGHT_LINES), '-t', teamTarget, '-d', '-P', '-F', '#{pane_id}', '-c', hudCwd, hudCmd,
@@ -1274,7 +1284,7 @@ export function restoreStandaloneHudPane(
   const omxEntry = resolveOmxCliEntryPath();
   if (!omxEntry || omxEntry.trim() === '') return null;
 
-  const hudCmd = `${shellQuoteSingle(translatePathForMsys(resolveLeaderNodePath()))} ${shellQuoteSingle(translatePathForMsys(omxEntry))} hud --watch`;
+  const hudCmd = `env ${OMX_TMUX_HUD_OWNER_ENV}=1 ${shellQuoteSingle(translatePathForMsys(resolveLeaderNodePath()))} ${shellQuoteSingle(translatePathForMsys(omxEntry))} hud --watch`;
   const hudCwd = translatePathForMsys(cwd);
   const hudResult = runTmux([
     'split-window',
@@ -1365,6 +1375,33 @@ function paneHasClaudeBypassPermissionsPrompt(captured: string): boolean {
   return hasWarning && hasChoices;
 }
 
+
+export type StartupDirectTriggerSafety =
+  | { safe: true; reason: 'ready_prompt' | 'codex_viewport' }
+  | { safe: false; reason: 'tmux_unavailable' | 'capture_failed' | 'trust_prompt' | 'claude_bypass_prompt' | 'bootstrapping' | 'not_agent_viewport' };
+
+export function evaluateStartupDirectTriggerSafetyCapture(captured: string, workerCli?: TeamWorkerCli): StartupDirectTriggerSafety {
+  if (paneHasTrustPrompt(captured)) return { safe: false, reason: 'trust_prompt' };
+  if (paneHasClaudeBypassPermissionsPrompt(captured)) return { safe: false, reason: 'claude_bypass_prompt' };
+  if (paneLooksReady(captured)) return { safe: true, reason: 'ready_prompt' };
+  if (paneIsBootstrapping(captured)) return { safe: false, reason: 'bootstrapping' };
+  if (workerCli === 'codex' && sharedPaneShowsCodexViewport(captured)) return { safe: true, reason: 'codex_viewport' };
+  return { safe: false, reason: 'not_agent_viewport' };
+}
+
+export async function evaluateStartupDirectTriggerSafety(
+  sessionName: string,
+  workerIndex: number,
+  workerPaneId?: string,
+  workerCli?: TeamWorkerCli,
+): Promise<StartupDirectTriggerSafety> {
+  if (!isTmuxAvailable()) return { safe: false, reason: 'tmux_unavailable' };
+  const target = paneTarget(sessionName, workerIndex, workerPaneId);
+  const result = await runTmuxAsync(sharedBuildVisibleCapturePaneArgv(target));
+  if (!result.ok) return { safe: false, reason: 'capture_failed' };
+  return evaluateStartupDirectTriggerSafetyCapture(result.stdout, workerCli);
+}
+
 function acceptClaudeBypassPermissionsPrompt(target: string): void {
   runTmux(['send-keys', '-t', target, '-l', '--', '2']);
   sleepFractionalSeconds(0.12);
@@ -1379,6 +1416,45 @@ function dismissClaudeBypassPermissionsPromptIfPresent(target: string, captured:
 }
 
 export const paneHasActiveTask = sharedPaneHasActiveTask;
+
+export type WorkerStartupInjectSafety =
+  | 'safe'
+  | 'trust_prompt'
+  | 'claude_bypass_prompt'
+  | 'bootstrapping'
+  | 'active_task'
+  | 'not_ready';
+
+export function classifyWorkerStartupInjectSafety(captured: string): WorkerStartupInjectSafety {
+  if (paneHasTrustPrompt(captured)) return 'trust_prompt';
+  if (paneHasClaudeBypassPermissionsPrompt(captured)) return 'claude_bypass_prompt';
+  if (paneIsBootstrapping(captured)) return 'bootstrapping';
+  if (paneHasActiveTask(captured)) return 'active_task';
+  if (!paneLooksReady(captured)) return 'not_ready';
+  return 'safe';
+}
+
+export async function checkWorkerStartupInjectSafety(
+  sessionName: string,
+  workerIndex: number,
+  workerPaneId?: string,
+): Promise<{ safe: true; reason: 'safe' } | { safe: false; reason: Exclude<WorkerStartupInjectSafety, 'safe'> }> {
+  const target = paneTarget(sessionName, workerIndex, workerPaneId);
+  const visibleCapture = await captureVisiblePaneAsync(target);
+  const visibleSafety = classifyWorkerStartupInjectSafety(visibleCapture);
+  if (visibleSafety === 'safe') return { safe: true, reason: 'safe' };
+  if (visibleSafety !== 'not_ready') return { safe: false, reason: visibleSafety };
+
+  if (!sharedPaneShowsCodexViewport(visibleCapture)) {
+    return { safe: false, reason: visibleSafety };
+  }
+
+  const scrollbackCapture = await capturePaneAsync(target);
+  const scrollbackSafety = classifyWorkerStartupInjectSafety(scrollbackCapture);
+  return scrollbackSafety === 'safe'
+    ? { safe: true, reason: 'safe' }
+    : { safe: false, reason: scrollbackSafety };
+}
 
 function resolveSendStrategyFromEnv(): 'auto' | 'queue' | 'interrupt' {
   const raw = String(process.env.OMX_TEAM_SEND_STRATEGY || '')

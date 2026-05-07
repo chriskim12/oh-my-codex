@@ -42,7 +42,7 @@ function runOmx(
   const r = spawnSync(nodeWrapper, [omxBin, ...argv], {
     cwd,
     encoding: 'utf-8',
-    env: { ...process.env, ...envOverrides },
+    env: { ...process.env, CODEX_HOME: '', ...envOverrides },
   });
   return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '', error: r.error?.message };
 }
@@ -513,10 +513,13 @@ describe('resolveExploreHarnessCommand', () => {
       await writeFile(join(wd, 'package.json'), '{}\n');
       await writeFile(join(crateDir, 'Cargo.toml'), '[package]\nname = "omx-explore-harness"\nversion = "0.0.0"\n');
 
-      const resolved = resolveExploreHarnessCommand(wd, {} as NodeJS.ProcessEnv);
+      const cacheDir = join(wd, 'native-cache');
+      const resolved = resolveExploreHarnessCommand(wd, { OMX_NATIVE_CACHE_DIR: cacheDir } as NodeJS.ProcessEnv);
       assert.equal(resolved.command, 'cargo');
       assert.ok(resolved.args.includes('--manifest-path'));
       assert.ok(resolved.args.includes(join(wd, 'crates', 'omx-explore', 'Cargo.toml')));
+      assert.ok(resolved.args.includes('--target-dir'));
+      assert.ok(resolved.args.includes(join(cacheDir, 'cargo-target', 'omx-explore-harness')));
     } finally {
       await rm(wd, { recursive: true, force: true });
     }
@@ -534,6 +537,10 @@ describe('resolveExploreHarnessCommand', () => {
         version: '0.8.15',
         repository: { url: 'git+https://github.com/Yeachan-Heo/oh-my-codex.git' },
       }));
+      // Published packages intentionally ship src/scripts for postinstall, but
+      // that must not make them look like writable source checkouts.
+      await mkdir(join(wd, 'src', 'scripts'), { recursive: true });
+      await writeFile(join(wd, 'src', 'scripts', 'postinstall-bootstrap.js'), '');
       await mkdir(join(wd, 'crates', 'omx-explore'), { recursive: true });
       await writeFile(join(wd, 'crates', 'omx-explore', 'Cargo.toml'), '[package]\nname=\"omx-explore-harness\"\nversion=\"0.8.15\"\n');
       const binaryPath = join(stagingDir, packagedExploreHarnessBinaryName());
@@ -642,22 +649,46 @@ describe('resolveExploreHarnessCommand', () => {
 describe('buildExploreHarnessArgs', () => {
   it('includes cwd, prompt, prompt contract, and constrained model settings', () => {
     const wd = join(tmpdir(), 'omx-explore-arg-test');
-    const args = buildExploreHarnessArgs('find auth', wd, {
-      OMX_EXPLORE_SPARK_MODEL: 'spark-model',
-    } as NodeJS.ProcessEnv, '/pkg');
-    assert.deepEqual(args.slice(0, 3), ['--cwd', wd, '--prompt']);
-    assert.match(args[3] || '', /Original Explore Prompt/);
-    assert.match(args[3] || '', /find auth/);
-    assert.deepEqual(args.slice(4), [
-      '--prompt-file',
-      '/pkg/prompts/explore-harness.md',
-      '--instructions-file',
-      '/pkg/templates/model-instructions/explore-lightweight-AGENTS.md',
-      '--model-spark',
-      'spark-model',
-      '--model-fallback',
-      'gpt-5.5',
-    ]);
+    const isolatedCodexHome = join(
+      tmpdir(),
+      `omx-explore-defaults-${process.pid}-${Date.now()}`,
+    );
+    const savedEnv = new Map<string, string | undefined>();
+    for (const key of [
+      'CODEX_HOME',
+      'OMX_DEFAULT_FRONTIER_MODEL',
+      'OMX_DEFAULT_STANDARD_MODEL',
+      'OMX_DEFAULT_SPARK_MODEL',
+      'OMX_SPARK_MODEL',
+    ] as const) {
+      savedEnv.set(key, process.env[key]);
+      delete process.env[key];
+    }
+
+    try {
+      const args = buildExploreHarnessArgs('find auth', wd, {
+        CODEX_HOME: isolatedCodexHome,
+        OMX_EXPLORE_SPARK_MODEL: 'spark-model',
+      } as NodeJS.ProcessEnv, '/pkg');
+      assert.deepEqual(args.slice(0, 3), ['--cwd', wd, '--prompt']);
+      assert.match(args[3] || '', /Original Explore Prompt/);
+      assert.match(args[3] || '', /find auth/);
+      assert.deepEqual(args.slice(4), [
+        '--prompt-file',
+        '/pkg/prompts/explore-harness.md',
+        '--instructions-file',
+        '/pkg/templates/model-instructions/explore-lightweight-AGENTS.md',
+        '--model-spark',
+        'spark-model',
+        '--model-fallback',
+        'gpt-5.5',
+      ]);
+    } finally {
+      for (const [key, value] of savedEnv.entries()) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 
   it('honors configured env overrides for fallback model and instructions file', async () => {

@@ -1,11 +1,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { getSetupInstallableSkillNames } from "../installable.js";
 import { readCatalogManifest } from "../reader.js";
-import { syncPluginMirror } from "../../scripts/sync-plugin-mirror.js";
+import {
+	isDirectCliInvocation,
+	syncPluginMirror,
+} from "../../scripts/sync-plugin-mirror.js";
 
 const root = process.cwd();
 
@@ -25,6 +29,28 @@ async function copyBundleFixture(): Promise<string> {
 }
 
 describe("plugin bundle SSOT contract", () => {
+	it("detects direct CLI execution when repo paths contain spaces", () => {
+		const scriptPath = join(
+			tmpdir(),
+			"Manual Library",
+			"repo",
+			"dist",
+			"scripts",
+			"sync-plugin-mirror.js",
+		);
+		const importMetaUrl = pathToFileURL(scriptPath).href;
+
+		assert.equal(isDirectCliInvocation(importMetaUrl, scriptPath), true);
+		assert.equal(isDirectCliInvocation(importMetaUrl, undefined), false);
+		assert.equal(
+			isDirectCliInvocation(
+				importMetaUrl,
+				join(tmpdir(), "other", "sync-plugin-mirror.js"),
+			),
+			false,
+		);
+	});
+
 	it("verifies the checked-in plugin bundle mirrors canonical roots", async () => {
 		const result = await syncPluginMirror({ root, check: true });
 		const expectedSkillNames = [
@@ -69,6 +95,29 @@ describe("plugin bundle SSOT contract", () => {
 			});
 
 			assert.equal(syncResult.changed, true);
+			assert.equal(checkResult.checked, true);
+		} finally {
+			await rm(fixtureRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("allows catalog-deprecated root skill dirs as non-installed compatibility shims", async () => {
+		const fixtureRoot = await copyBundleFixture();
+		try {
+			const manifestPath = join(fixtureRoot, "templates", "catalog-manifest.json");
+			const manifest = JSON.parse(await readFile(manifestPath, "utf-8")) as {
+				skills: Array<{ name: string; status: string; canonical?: string }>;
+			};
+			const skill = manifest.skills.find((entry) => entry.name === "help");
+			assert.ok(skill, "fixture should include help skill");
+			skill.status = "deprecated";
+			skill.canonical = "omx-setup";
+			await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+			const result = await syncPluginMirror({ root: fixtureRoot });
+			assert.equal(result.mirroredSkillNames.includes("help"), false);
+
+			const checkResult = await syncPluginMirror({ root: fixtureRoot, check: true });
 			assert.equal(checkResult.checked, true);
 		} finally {
 			await rm(fixtureRoot, { recursive: true, force: true });

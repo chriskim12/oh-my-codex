@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import {
 	getSetupInstallableSkillNames,
 	isCatalogInstallableStatus,
@@ -144,14 +145,14 @@ async function assertRootSkillCatalogConsistency(
 		.filter((skillName) => {
 			if (expectedSkillNames.has(skillName)) return false;
 			const status = manifestByName.get(skillName)?.status;
-			return status !== "alias" && status !== "merged";
+			return status !== "alias" && status !== "merged" && status !== "deprecated";
 		})
 		.sort();
 	if (nonInstallableRootSkillDirs.length > 0) {
 		throw new Error(
 			[
 				"canonical_skill_catalog_out_of_sync",
-				"message=root skill directories excluded from plugin must be alias or merged catalog entries",
+				"message=root skill directories excluded from plugin must be alias, merged, or deprecated catalog entries",
 				`skills=${JSON.stringify(nonInstallableRootSkillDirs)}`,
 			].join("\n"),
 		);
@@ -345,7 +346,15 @@ function parseArgs(argv: string[]): SyncPluginMirrorOptions {
 	};
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+export function isDirectCliInvocation(
+	importMetaUrl: string,
+	argvPath: string | undefined,
+): boolean {
+	if (!argvPath) return false;
+	return fileURLToPath(importMetaUrl) === resolve(argvPath);
+}
+
+if (isDirectCliInvocation(import.meta.url, process.argv[1])) {
 	syncPluginMirror(parseArgs(process.argv.slice(2)))
 		.then((result) => {
 			const action = result.checked ? "verified" : "synced";

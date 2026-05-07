@@ -6,9 +6,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import TOML from "@iarna/toml";
 import { buildMergedConfig, cleanCodexModelAvailabilityNuxIfNeeded, mergeConfig, repairConfigIfNeeded } from "../generator.js";
+import { OMX_FIRST_PARTY_MCP_SERVER_NAMES } from "../omx-first-party-mcp.js";
 
 /** Count occurrences of a pattern in text */
 function count(text: string, pattern: RegExp): number {
@@ -88,12 +89,39 @@ function assertSingleOmxBlock(toml: string): void {
     1,
     "developer_instructions should appear once",
   );
-  assert.equal(count(toml, /^\[env\]$/gm), 1, "[env] should appear once");
+  assert.equal(count(toml, /^\[env\]$/gm), 0, "[env] should not be emitted");
+  assert.equal(
+    count(toml, /^\[shell_environment_policy\.set\]$/gm),
+    1,
+    "[shell_environment_policy.set] should appear once",
+  );
   assert.equal(
     count(toml, /^USE_OMX_EXPLORE_CMD = "1"$/gm),
     1,
     "USE_OMX_EXPLORE_CMD should appear once",
   );
+
+  const parsed = TOML.parse(toml) as {
+    mcp_servers?: Record<string, { command?: unknown }>;
+  };
+  for (const name of OMX_FIRST_PARTY_MCP_SERVER_NAMES) {
+    const command = parsed.mcp_servers?.[name]?.command;
+    assert.equal(
+      command,
+      process.execPath,
+      `[mcp_servers.${name}] should use the Node executable that ran setup`,
+    );
+    assert.notEqual(
+      command,
+      "node",
+      `[mcp_servers.${name}] should not depend on PATH lookup for node`,
+    );
+    assert.equal(
+      typeof command === "string" && isAbsolute(command),
+      true,
+      `[mcp_servers.${name}] command should be absolute`,
+    );
+  }
 }
 
 describe("Codex transient TUI NUX cleanup", () => {
@@ -170,6 +198,7 @@ describe("config generator idempotency (#384)", () => {
       assert.match(toml, /^multi_agent = true$/m);
       assert.match(toml, /^child_agents_md = true$/m);
       assert.match(toml, /^codex_hooks = true$/m);
+      assert.match(toml, /^goals = true$/m);
     } finally {
       await rm(wd, { recursive: true, force: true });
     }
@@ -226,6 +255,7 @@ describe("config generator idempotency (#384)", () => {
         "",
         "[features]",
         "multi_agent = true",
+        "goals = false",
         "",
         "[mcp_servers.omx_state]",
         'command = "node"',
@@ -342,6 +372,7 @@ describe("config generator idempotency (#384)", () => {
       const orphanedAgents = [
         "[features]",
         "multi_agent = true",
+        "goals = false",
         "",
         "# OMX Native Agent Roles (Codex multi-agent)",
         "",
@@ -534,26 +565,55 @@ describe("config generator idempotency (#384)", () => {
 
     assert.doesNotMatch(toml, /^\[tui\]$/m);
     assert.match(toml, /^\[mcp_servers\.omx_state\]$/m);
-    assert.match(toml, /^\[env\]$/m);
+    assert.match(toml, /^\[shell_environment_policy\.set\]$/m);
     assert.match(toml, /^USE_OMX_EXPLORE_CMD = "1"$/m);
   });
 
   it('seeds USE_OMX_EXPLORE_CMD=1 into generated config by default', () => {
     const toml = buildMergedConfig('', '/tmp/omx');
 
-    assert.match(toml, /^\[env\]$/m);
+    assert.doesNotMatch(toml, /^\[env\]$/m);
+    assert.match(toml, /^\[shell_environment_policy\.set\]$/m);
     assert.match(toml, /^USE_OMX_EXPLORE_CMD = "1"$/m);
   });
 
-  it('preserves existing [env] keys and explicit explore routing opt-outs', () => {
+  it('migrates existing [env] keys and explicit explore routing opt-outs', () => {
     const toml = buildMergedConfig(
       ['[env]', 'FOO = "bar"', 'USE_OMX_EXPLORE_CMD = "0"', ''].join('\n'),
       '/tmp/omx',
     );
 
-    assert.match(toml, /^\[env\]$/m);
+    assert.doesNotMatch(toml, /^\[env\]$/m);
+    assert.match(toml, /^\[shell_environment_policy\.set\]$/m);
     assert.match(toml, /^FOO = "bar"$/m);
     assert.match(toml, /^USE_OMX_EXPLORE_CMD = "0"$/m);
+  });
+
+  it("migrates multiline [env] values without truncating TOML entries", () => {
+    const toml = buildMergedConfig(
+      [
+        "[env]",
+        'FOO = """first line',
+        "  second line",
+        'third line"""',
+        "BAR = [",
+        '  "one",',
+        '  "two",',
+        "]",
+        "",
+      ].join("\n"),
+      "/tmp/omx",
+    );
+
+    assert.doesNotMatch(toml, /^\[env\]$/m);
+    assert.match(toml, /^\[shell_environment_policy\.set\]$/m);
+    assert.match(
+      toml,
+      /FOO = """first line\n  second line\nthird line"""/,
+    );
+    assert.match(toml, /BAR = \[\n  "one",\n  "two",\n\]/);
+    assert.match(toml, /^USE_OMX_EXPLORE_CMD = "1"$/m);
+    assert.doesNotThrow(() => TOML.parse(toml));
   });
 
   it("replaces an existing OMX notify entry without leaving orphan fragments behind", async () => {

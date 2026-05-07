@@ -22,6 +22,7 @@ import {
   listInstalledSkillDirectories,
   omxNotepadPath,
   omxProjectMemoryPath,
+  omxStateDir,
   packageRoot,
 } from "../utils/paths.js";
 import {
@@ -40,6 +41,11 @@ import {
   listActiveSkills,
   readVisibleSkillActiveState,
 } from "../state/skill-active.js";
+import {
+  OMX_GENERATED_AGENTS_MARKER,
+  OMX_MANAGED_AGENTS_END_MARKER,
+  OMX_MANAGED_AGENTS_START_MARKER,
+} from "../utils/agents-md.js";
 
 const START_MARKER = "<!-- OMX:RUNTIME:START -->";
 const END_MARKER = "<!-- OMX:RUNTIME:END -->";
@@ -51,7 +57,7 @@ const SKILL_REFERENCE_PATTERN = /\/skills\/([^/\s`]+)\/SKILL\.md\b/g;
 // ── Lock helpers ─────────────────────────────────────────────────────────────
 
 function lockPath(cwd: string): string {
-  return join(cwd, ".omx", "state", "agents-md.lock");
+  return join(omxStateDir(cwd), "agents-md.lock");
 }
 
 async function acquireLock(
@@ -627,6 +633,30 @@ function dropShadowedSkillReferenceLines(
   return keptLines.join("\n");
 }
 
+function stripOmxManagedAgentsBlocks(content: string): string {
+  let next = content;
+
+  while (true) {
+    const startIndex = next.indexOf(OMX_MANAGED_AGENTS_START_MARKER);
+    if (startIndex < 0) return next;
+
+    const endIndex = next.indexOf(
+      OMX_MANAGED_AGENTS_END_MARKER,
+      startIndex + OMX_MANAGED_AGENTS_START_MARKER.length,
+    );
+    if (endIndex < 0) return next;
+
+    const replaceEnd = endIndex + OMX_MANAGED_AGENTS_END_MARKER.length;
+    next = `${next.slice(0, startIndex)}${next.slice(replaceEnd)}`;
+  }
+}
+
+function stripGeneratedOmxAgentsForSession(content: string): string {
+  const withoutManagedBlocks = stripOmxManagedAgentsBlocks(content).trim();
+  if (withoutManagedBlocks.includes(OMX_GENERATED_AGENTS_MARKER)) return "";
+  return withoutManagedBlocks;
+}
+
 /**
  * Build a session-scoped AGENTS.md that combines user-level CODEX_HOME
  * instructions, project instructions (if any), and the runtime overlay,
@@ -656,6 +686,7 @@ export async function writeSessionModelInstructionsFile(
 
     let content = await readFile(sourcePath, "utf-8");
     content = stripOverlayContent(content).trim();
+    content = stripGeneratedOmxAgentsForSession(content);
     if (sourcePath === join(codexHome(), "AGENTS.md")) {
       content = dropShadowedSkillReferenceLines(
         content,
